@@ -1,3 +1,5 @@
+import traceback
+
 import streamlit as st
 from pathlib import Path
 
@@ -50,6 +52,7 @@ def main():
                                 st.error("向量化失败")
                     except Exception as e:
                         st.error(f"向量化过程中发生错误: {str(e)}")
+                        print(traceback.format_exc())
 
     # 用于跟踪对话历史
     if "messages" not in st.session_state:

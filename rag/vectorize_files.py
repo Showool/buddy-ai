@@ -1,4 +1,5 @@
 import os
+import traceback
 from pathlib import Path
 from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredMarkdownLoader, Docx2txtLoader, TextLoader, CSVLoader
 from langchain_community.embeddings import DashScopeEmbeddings
@@ -44,6 +45,7 @@ def vectorize_uploaded_files(file_paths):
             print(f"成功加载文件: {file_path}")
         except Exception as e:
             print(f"加载文件时出错: {file_path}, 错误: {str(e)}")
+            print(traceback.format_exc())
             continue
     
     if not texts:
@@ -67,4 +69,5 @@ def vectorize_uploaded_files(file_paths):
         return True
     except Exception as e:
         print(f"创建向量数据库时出错: {str(e)}")
+        print(traceback.format_exc())
         return False
