@@ -25,7 +25,7 @@ def get_qa_history_chain():
 
     # 创建文档检索分支
     retrieve_docs = RunnableBranch(
-        (lambda x: not x.get("chat_history", False), (lambda x: x["input"]) | retriever,),
+        (lambda x: not x.get("chat_history", []), (lambda x: x["input"]) | retriever,),
         condense_question_prompt | llm | StrOutputParser() | retriever,
     )
     
@@ -46,6 +46,8 @@ def get_qa_history_chain():
         else:
             # 否则直接转换为字符串
             docs_context = str(retrieved_docs_result)
+
+        print(f"检索到的文档type: {type(docs_context)}, 内容: {docs_context}")
         
         # 执行网络搜索
         search_query = input_query  # 可以根据需要调整搜索查询

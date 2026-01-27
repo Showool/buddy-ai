@@ -1,7 +1,7 @@
 import streamlit as st
 from pathlib import Path
 
-from data_base.vectorize_files import vectorize_uploaded_files
+from rag.vectorize_files import vectorize_uploaded_files
 from qa_chain.get_qa_history_chain import get_qa_history_chain
 from qa_chain.get_response import gen_response
 
