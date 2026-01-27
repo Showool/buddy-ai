@@ -9,5 +9,5 @@ def get_vector_store():
 
     return Chroma(
         embedding_function=get_embeddings_model(),
-        persist_directory=os.getenv("CHROMA_PERSIST_DIR"),
+        persist_directory='../data_base/vector_db/chroma',
     )

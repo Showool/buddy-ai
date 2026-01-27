@@ -10,7 +10,7 @@ vectordb = Chroma(
     persist_directory=os.getenv("CHROMA_PERSIST_DIR")
 )
 
-question = 'Buddy-AI手机是什么'
+question = '介绍下阿里云百炼X1'
 
 sim_docs = vectordb.similarity_search(question, k=3)
 print(f"similarity_search检索到的内容数：{len(sim_docs)}")

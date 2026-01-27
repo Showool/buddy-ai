@@ -35,7 +35,7 @@ def retrieve_context(query: str):
     retrieved_docs = get_vector_store().similarity_search(query, k=2)
     print(f"检索到的文件数： {len(retrieved_docs)} ")
     serialized = "\n\n".join(
-        (f"Source: {doc.metadata}\nContent: {doc.page_content}")
+        f"Source: {doc.metadata}\nContent: {doc.page_content}"
         for doc in retrieved_docs
     )
     return serialized, retrieved_docs

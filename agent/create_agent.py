@@ -1,5 +1,6 @@
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelRequest, wrap_model_call, ModelResponse, SummarizationMiddleware
+from langchain.agents.middleware import ModelRequest, wrap_model_call, ModelResponse, SummarizationMiddleware, \
+    ModelCallLimitMiddleware, ToolCallLimitMiddleware
 from langchain.agents.structured_output import ToolStrategy
 
 from agent.agent_context import Context
@@ -43,46 +44,25 @@ agent = create_agent(
         #             trigger=("messages", 5),
         #             keep=("messages", 3),
         #         ),
+        ModelCallLimitMiddleware(
+            thread_limit=10,
+            run_limit=3,
+            exit_behavior="end",
+        ),
+        ToolCallLimitMiddleware(
+            # tool_name="tavily_search",
+            thread_limit=5,
+            run_limit=3,
+        ),
     ],
     debug=True,
 )
 
-# `thread_id` is a unique identifier for a given conversation.
-config = {"configurable": {"thread_id": "1"}}
-#
-# response = agent.invoke(
-#     {"messages": [{"role": "user", "content": "what is the weather outside?"}]},
-#     config=config,
-#     context=Context(user_id="1")
-# )
-#
-# print(response['structured_response'])
-# ResponseFormat(
-#     punny_response="Florida is still having a 'sun-derful' day! The sunshine is playing 'ray-dio' hits all day long! I'd say it's the perfect weather for some 'solar-bration'! If you were hoping for rain, I'm afraid that idea is all 'washed up' - the forecast remains 'clear-ly' brilliant!",
-#     weather_conditions="It's always sunny in Florida!"
-# )
-
-
-# Note that we can continue the conversation using the same `thread_id`.
-# response = agent.invoke(
-#     {"messages": [{"role": "user", "content": "thank you!"}]},
-#     config=config,
-#     context=Context(user_id="1")
-# )
-#
-# print(response['structured_response'])
-# ResponseFormat(
-#     punny_response="You're 'thund-erfully' welcome! It's always a 'breeze' to help you stay 'current' with the weather. I'm just 'cloud'-ing around waiting to 'shower' you with more forecasts whenever you need them. Have a 'sun-sational' day in the Florida sunshine!",
-#     weather_conditions=None
-# )
-
-# response = agent.invoke(
-#     {"messages": [{"role": "user", "content": "Where is my location?"}]},
-#     config=config,
-#     context=Context(user_id="2")
-# )
-#
-# print(response['structured_response'])
+# 配置线程ID，指定最大循环次数
+config = {
+    "configurable": {"thread_id": "1"},
+    # "recursion_limit": 10
+}
 
 while True:
     user_input = input("User: ")
@@ -93,9 +73,9 @@ while True:
     # )
     for chunk in agent.stream({
         "messages": [{"role": "user", "content": user_input}]
-    },  config=config,
-        context=Context(user_id="1"),
-        stream_mode="values"):
+    }, config=config,
+            context=Context(user_id="1"),
+            stream_mode="values"):
         # Each chunk contains the full state at that point
         # latest_message = chunk["messages"][-1]
         # if latest_message.content:
