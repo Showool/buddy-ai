@@ -1,9 +1,12 @@
+from typing import Union
+
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, wrap_model_call, ModelResponse, SummarizationMiddleware, \
-    ModelCallLimitMiddleware, ToolCallLimitMiddleware
-from langchain.agents.structured_output import ToolStrategy
+    ModelCallLimitMiddleware, ToolCallLimitMiddleware, LLMToolSelectorMiddleware
+from langchain.agents.structured_output import ToolStrategy, ProviderStrategy
 
 from agent.agent_context import Context
+from agent.middleware import personalized_prompt
 from agent.response_format import ResponseFormat
 from llm.get_llm import get_llm
 from memory.get_memory import get_memory, get_store
@@ -38,6 +41,7 @@ agent = create_agent(
     checkpointer=get_memory(),
     store=get_store(),
     middleware=[
+        personalized_prompt,
         dynamic_model_selection,
         # SummarizationMiddleware(
         #             model=basic_model,
@@ -54,6 +58,11 @@ agent = create_agent(
             thread_limit=5,
             run_limit=3,
         ),
+        LLMToolSelectorMiddleware(
+            model=basic_model,
+            max_tools=3,
+            always_include=["tavily_search"],
+        ),
     ],
     debug=True,
 )
@@ -61,7 +70,7 @@ agent = create_agent(
 # 配置线程ID，指定最大循环次数
 config = {
     "configurable": {"thread_id": "1"},
-    # "recursion_limit": 10
+    # "recursion_limit": 10,
 }
 
 while True:
@@ -72,9 +81,9 @@ while True:
     #     context=Context(user_id="1")
     # )
     for chunk in agent.stream({
-        "messages": [{"role": "user", "content": user_input}]
+        "messages": [{"role": "user", "content": user_input}],
     }, config=config,
-            context=Context(user_id="1"),
+            context=Context(user_id="1", user_name="Jason"),
             stream_mode="values"):
         # Each chunk contains the full state at that point
         # latest_message = chunk["messages"][-1]

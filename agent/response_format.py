@@ -1,4 +1,8 @@
 from dataclasses import dataclass
+from typing import Generic
+
+from langchain.agents.structured_output import SchemaT
+
 
 # We use a dataclass here, but Pydantic models are also supported.
 @dataclass

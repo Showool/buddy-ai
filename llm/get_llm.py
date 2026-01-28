@@ -3,7 +3,7 @@ import os
 import dotenv
 
 
-def get_llm(model: str):
+def get_llm(model: str = "qwen-plus"):
     dotenv.load_dotenv()  # read local .env file
     return ChatOpenAI(
         temperature=0.7,

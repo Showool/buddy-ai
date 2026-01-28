@@ -5,3 +5,4 @@ from dataclasses import dataclass
 class Context:
     """Custom runtime context schema."""
     user_id: str
+    user_name: str
