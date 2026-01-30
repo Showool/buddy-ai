@@ -248,7 +248,8 @@ def search_knowledge_base(query: str) -> str:
     print(result["final_answer"])
     return result["final_answer"]
 
-
+# 添加会话内存的最简单方法是将无状态路由器包装为对话代理可以调用的工具
+# 这种方法使路由器保持无状态，而对话代理处理内存和上下文。用户可以进行多回合对话，代理会根据需要调用路由器工具
 conversational_agent = create_agent(
     model,
     tools=[search_knowledge_base],

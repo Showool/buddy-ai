@@ -1,17 +1,22 @@
+from langgraph.checkpoint.redis import RedisSaver
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import StreamMode
+import os
+import json
+
 import io
 import json
 import os
-import uuid
 
 from langchain.tools import tool
 from langchain_core.messages import convert_to_messages
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis import RedisSaver
-from langgraph.store.base import BaseStore
-from langgraph.store.postgres import PostgresStore
 
 from llm.get_llm import get_llm
 from rag.get_retriever import get_retriever
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
 
 
 @tool
@@ -84,11 +89,11 @@ def grade_documents(
         )
     )
     score = response.binary_score
-    return "generate_answer"
-    # if score == "yes":
-    #     return "generate_answer"
-    # else:
-    #     return "rewrite_question"
+
+    if score == "yes":
+        return "generate_answer"
+    else:
+        return "rewrite_question"
 
 
 from langchain.messages import HumanMessage
@@ -139,84 +144,65 @@ def generate_answer(state: MessagesState):
     return {"messages": [response]}
 
 
-from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
-
-with (RedisSaver.from_conn_string(os.getenv("REDIS_URL")) as checkpointer,
-    PostgresStore.from_conn_string(os.getenv("POSTGRESQL_URL")) as store):
-    # checkpointer.setup()
-    store.setup()
-
-
-    def call_model(
-            state: MessagesState,
-            config: RunnableConfig,
-            *,
-            store: BaseStore,
-    ):
-        user_id = config["configurable"]["user_id"]
-        namespace = ("memories", user_id)
-        memories = store.search(namespace, query=str(state["messages"][-1].content))
-        info = "\n".join([d.value["data"] for d in memories])
-        system_msg = f"你是一个有用的助手，与用户对话。 用户信息: {info}"
-        print(f'system_msg: {system_msg}')
-
-        # Store new memories if the user asks the model to remember
-        last_message = state["messages"][-1]
-        print(f'call_model last_message: {last_message}')
-        if "记住" in last_message.content.lower():
-            print(f'call_model remember: {last_message.content.lower()}')
-            memory = "用户姓名是Jason"
-            store.put(namespace, str(uuid.uuid4()), {"data": memory})
-
-        response = get_llm().invoke(
-            [{"role": "system", "content": system_msg}] + state["messages"]
-        )
-        return {"messages": response}
-
+# 步骤1：在with外部创建并compile graph
+def create_graph():
     workflow = StateGraph(MessagesState)
-    workflow.add_node(call_model)
-    workflow.add_edge(START, "call_model")
-    # Define the nodes we will cycle between
+
+    # 添加所有节点
     workflow.add_node(generate_query_or_respond)
-    workflow.add_edge(START, "generate_query_or_respond")
     workflow.add_node("retrieve", ToolNode([retriever_tool]))
     workflow.add_node(rewrite_question)
     workflow.add_node(generate_answer)
 
-
-
-    # Decide whether to retrieve
+    # 添加所有边
+    workflow.add_edge(START, "generate_query_or_respond")
     workflow.add_conditional_edges(
         "generate_query_or_respond",
-        # Assess LLM decision (call `retriever_tool` tool or respond to the user)
         tools_condition,
         {
-            # Translate the condition outputs to nodes in our graph
             "tools": "retrieve",
             END: END,
         },
     )
-
-    # Edges taken after the `action` node is called.
     workflow.add_conditional_edges(
         "retrieve",
-        # Assess agent decision
         grade_documents,
     )
     workflow.add_edge("generate_answer", END)
     workflow.add_edge("rewrite_question", "generate_query_or_respond")
 
-    # Compile
-    graph = workflow.compile(checkpointer=checkpointer, store=store)
+    return workflow
 
-    config = {"configurable": {"thread_id": "1", "user_id": "1"}}
 
-    while True:
-        question = input("User: ")
-        if question == "quit":
-            break
+# 步骤2：创建checkpointer并setup（仅一次）
+with RedisSaver.from_conn_string(os.getenv("REDIS_URL")) as checkpointer:
+    pass  # 自动setup
 
+# 步骤3：重新创建持久checkpointer（手动方式）
+from redis.asyncio import Redis
+
+redis_client = Redis.from_url(
+    os.getenv("REDIS_URL"),
+    decode_responses=True,
+    max_connections=20
+)
+
+checkpointer = RedisSaver(redis_client=redis_client)
+# 无需再次setup，已在第2步初始化
+
+# 步骤4：编译图
+workflow = create_graph()
+graph = workflow.compile(checkpointer=checkpointer)
+
+# 步骤5：对话循环（无需with包裹）
+config = {"configurable": {"thread_id": "6"}}
+
+while True:
+    question = input("User: ")
+    if question == "quit":
+        break
+
+    try:
         for chunk in graph.stream(
                 {
                     "messages": [
@@ -236,20 +222,6 @@ with (RedisSaver.from_conn_string(os.getenv("REDIS_URL")) as checkpointer,
                 print("INTERRUPTED:")
                 for request in action.value:
                     print(json.dumps(request, indent=2))
-            else:
-                pass
-
-
-
-
-
-# import matplotlib
-# matplotlib.use("TkAgg")  # 或 QtAgg
-
-# import matplotlib.pyplot as plt
-# from PIL import Image
-#
-# img = Image.open(io.BytesIO(graph.get_graph().draw_mermaid_png()))
-# plt.imshow(img)
-# plt.axis('off')  # 不显示坐标轴
-# plt.show()
+    except Exception as e:
+        print(f"错误: {e}")
+        break
