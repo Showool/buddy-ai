@@ -8,8 +8,8 @@ from langchain.agents.structured_output import ToolStrategy, ProviderStrategy
 from agent.agent_context import Context
 from agent.middleware import personalized_prompt
 from agent.response_format import ResponseFormat
-from llm.get_llm import get_llm
-from memory.get_memory import get_memory, get_store
+from llm.llm_factory import get_llm
+from memory.memory_factory import get_memory, get_store
 from prompt.prompt import SYSTEM_PROMPT
 from tools import get_tools
 

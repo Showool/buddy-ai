@@ -2,7 +2,7 @@ import os
 
 from langchain_chroma import Chroma
 
-from embedding.get_embeddings_model import get_embeddings_model
+from retriever.embeddings_model import get_embeddings_model
 
 
 def get_retriever():

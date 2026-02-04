@@ -5,8 +5,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableBranch, RunnablePassthrough, RunnableLambda
 
-from llm.get_llm import get_llm
-from rag.get_retriever import get_retriever
+from llm.llm_factory import get_llm
+from retriever.get_retriever import get_retriever
 
 
 def get_qa_history_chain():

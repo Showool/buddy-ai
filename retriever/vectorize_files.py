@@ -1,13 +1,10 @@
 import os
 import traceback
-from pathlib import Path
 from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredMarkdownLoader, Docx2txtLoader, TextLoader, CSVLoader
-from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from dotenv import load_dotenv, find_dotenv
 
-from embedding.get_embeddings_model import get_embeddings_model
+from retriever.embeddings_model import get_embeddings_model
 
 
 def vectorize_uploaded_files(file_paths):

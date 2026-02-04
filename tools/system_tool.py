@@ -3,7 +3,7 @@ from langchain.messages import RemoveMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langchain.tools import tool, ToolRuntime
 
-from rag.get_vector_store import get_vector_store
+from retriever.vector_store import get_vector_store
 
 
 # 通过删除所有消息来更新对话记录

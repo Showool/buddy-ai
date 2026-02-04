@@ -1,4 +1,4 @@
-from rag.get_db import get_sqlite_db
+from retriever.get_db import get_sqlite_db
 
 SYSTEM_PROMPT = """你是一个全能的智能助手，耐心回答用户的问题，不要输出与问题无关的内容。使用以下格式响应：
 

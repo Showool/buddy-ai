@@ -7,7 +7,7 @@ from langchain.messages import SystemMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from typing import Callable
 
-from llm.get_llm import get_llm
+from llm.llm_factory import get_llm
 
 
 # Define skill structure

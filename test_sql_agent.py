@@ -8,8 +8,8 @@ from langgraph.checkpoint.redis import RedisSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from llm.get_llm import get_llm
-from rag.get_db import get_sqlite_db
+from llm.llm_factory import get_llm
+from retriever.get_db import get_sqlite_db
 
 db = get_sqlite_db()
 toolkit = SQLDatabaseToolkit(db=db, llm=get_llm())

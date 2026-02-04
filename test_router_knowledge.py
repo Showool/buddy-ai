@@ -16,7 +16,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 from pydantic import BaseModel, Field
 
-from llm.get_llm import get_llm
+from llm.llm_factory import get_llm
 
 
 # State definitions

@@ -1,10 +1,3 @@
-import os
-
-from embedding.get_embeddings_model import get_embeddings_model
-
-
-from langchain_chroma import Chroma
-
 # vectordb = Chroma(
 #     embedding_function=get_embeddings_model(),
 #     persist_directory=os.getenv("CHROMA_PERSIST_DIR")
@@ -19,8 +12,8 @@ from langchain_chroma import Chroma
 
 
 
-from llm.get_llm import get_llm
-from rag.get_db import get_sqlite_db
+from llm.llm_factory import get_llm
+from retriever.get_db import get_sqlite_db
 
 # 1. 连接本地SQLite文件（替换为你的.db路径）
 db = get_sqlite_db()

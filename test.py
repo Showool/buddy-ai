@@ -3,9 +3,9 @@ from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langgraph.checkpoint.memory import InMemorySaver
 
-from llm.get_llm import get_llm
+from llm.llm_factory import get_llm
 from prompt.prompt import SQL_AGENT_SYSTEM_PROMPT
-from rag.get_db import get_sqlite_db
+from retriever.get_db import get_sqlite_db
 
 
 def test_sql_agent():
