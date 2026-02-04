@@ -4,7 +4,8 @@ import os
 import uuid
 
 from langchain.tools import tool
-from langchain_core.messages import convert_to_messages
+from langchain_core.messages import convert_to_messages, SystemMessage
+from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis import RedisSaver
 from langgraph.store.base import BaseStore
@@ -28,12 +29,45 @@ from langgraph.graph import MessagesState
 response_model = get_llm()
 
 
-def generate_query_or_respond(state: MessagesState):
+def generate_query_or_respond(state: MessagesState,
+        config: RunnableConfig,
+        *,
+        store: BaseStore,):
     """调用模型，根据当前状态生成响应。针对问题，它会选择使用检索工具取回，或者简单地回应用户.
     """
+    user_id = config["configurable"]["user_id"]
+    namespace = ("memories", user_id)
+    # 改进记忆检索策略：结合最近消息和完整对话历史来检索相关记忆
+    recent_message = str(state["messages"][-1].content)
+    # 如果对话历史较长，也考虑整体上下文
+    all_messages_content = " ".join([str(msg.content) for msg in state["messages"] if hasattr(msg, 'content')])
+
+    # 优先使用最近的消息进行检索，但如果没找到则使用完整对话内容
+    memories = store.search(namespace, query=recent_message)
+    if not memories:  # 如果基于最新消息未找到记忆，尝试使用完整对话内容
+        memories = store.search(namespace, query=all_messages_content)
+    # 格式化用户信息，使其更易被大模型理解和使用
+    if memories:
+        info_list = [d.value["data"] for d in memories]
+        formatted_info = "\n【用户信息】" + "\n【用户信息】".join(info_list)
+        system_msg = f"你是一个有用的助手，正在与用户对话。\n\n=== 用户个人信息 ===\n{formatted_info}\n\n=== 回答规则 ===\n- 当用户询问个人信息（如姓名、偏好、历史记录等）时，必须直接使用上面提供的信息进行回答\n- 如果上面提供了用户姓名，当用户问'我是谁'、'我的名字是什么'等问题时，直接告知用户姓名\n- 不要让用户感觉你忘记了他们的信息\n- 基于这些信息提供个性化服务"
+    else:
+        system_msg = "你是一个有用的助手，与用户对话。目前没有相关的用户信息。"
+    print(f'system_msg: {system_msg}')
+    print(f'recent_message: {recent_message}')
+
+    # Store new memories if the user asks the model to remember
+    last_message = state["messages"][-1]
+    print(f'call_model last_message: {last_message}')
+    if "记住" in last_message.content.lower():
+        print(f'call_model remember: {last_message.content.lower()}')
+        # 使用LLM总结需要记住的内容
+        memory = summarize_memory_content(last_message.content)
+        store.put(namespace, str(uuid.uuid4()), {"data": memory})
+
     response = (
         response_model
-        .bind_tools([retriever_tool]).invoke(state["messages"])
+        .bind_tools([retriever_tool]).invoke([{"role": "system", "content": system_msg}] + state["messages"])
     )
     return {"messages": [response]}
 
@@ -41,13 +75,6 @@ def generate_query_or_respond(state: MessagesState):
 from pydantic import BaseModel, Field
 from typing import Literal
 
-# GRADE_PROMPT = (
-#     "You are a grader assessing relevance of a retrieved document to a user question. \n "
-#     "Here is the retrieved document: \n\n {context} \n\n"
-#     "Here is the user question: {question} \n"
-#     "If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n"
-#     "Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."
-# )
 
 GRADE_PROMPT = """
 您是一名评估员，负责评估检索出的文档与用户问题相关性的程度。
@@ -93,15 +120,6 @@ def grade_documents(
 
 from langchain.messages import HumanMessage
 
-# REWRITE_PROMPT = (
-#     "Look at the input and try to reason about the underlying semantic intent / meaning.\n"
-#     "Here is the initial question:"
-#     "\n ------- \n"
-#     "{question}"
-#     "\n ------- \n"
-#     "Formulate an improved question:"
-# )
-
 REWRITE_PROMPT = """
 观察输入，尝试推理其语义意图的含义.
 以下是初始问题：
@@ -142,49 +160,40 @@ def generate_answer(state: MessagesState):
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
+SUMMARIZE_MEMORY_PROMPT = """
+请从以下用户消息中提取关键信息并进行总结。
+用户消息: {user_message}
+
+请总结出需要记住的重要信息，格式如下：
+- 如果提到姓名，总结为"用户姓名是XXX"
+- 如果提到偏好，总结为"用户偏好XXX"
+- 如果提到重要信息，总结为"用户相关信息：XXX"
+
+只输出需要记住的关键信息，简洁明了。
+"""
+
+
+def summarize_memory_content(user_message: str):
+    """使用LLM总结用户消息中的关键信息"""
+    prompt = SUMMARIZE_MEMORY_PROMPT.format(user_message=user_message)
+    response = response_model.invoke([
+        {"role": "user", "content": prompt}
+    ])
+    return response.content
+
+
 with (RedisSaver.from_conn_string(os.getenv("REDIS_URL")) as checkpointer,
-    PostgresStore.from_conn_string(os.getenv("POSTGRESQL_URL")) as store):
+      PostgresStore.from_conn_string(os.getenv("POSTGRESQL_URL")) as store):
     # checkpointer.setup()
-    store.setup()
-
-
-    def call_model(
-            state: MessagesState,
-            config: RunnableConfig,
-            *,
-            store: BaseStore,
-    ):
-        user_id = config["configurable"]["user_id"]
-        namespace = ("memories", user_id)
-        memories = store.search(namespace, query=str(state["messages"][-1].content))
-        info = "\n".join([d.value["data"] for d in memories])
-        system_msg = f"你是一个有用的助手，与用户对话。 用户信息: {info}"
-        print(f'system_msg: {system_msg}')
-
-        # Store new memories if the user asks the model to remember
-        last_message = state["messages"][-1]
-        print(f'call_model last_message: {last_message}')
-        if "记住" in last_message.content.lower():
-            print(f'call_model remember: {last_message.content.lower()}')
-            memory = "用户姓名是Jason"
-            store.put(namespace, str(uuid.uuid4()), {"data": memory})
-
-        response = get_llm().invoke(
-            [{"role": "system", "content": system_msg}] + state["messages"]
-        )
-        return {"messages": response}
+    # store.setup()
 
     workflow = StateGraph(MessagesState)
-    workflow.add_node(call_model)
-    workflow.add_edge(START, "call_model")
     # Define the nodes we will cycle between
     workflow.add_node(generate_query_or_respond)
     workflow.add_edge(START, "generate_query_or_respond")
     workflow.add_node("retrieve", ToolNode([retriever_tool]))
     workflow.add_node(rewrite_question)
     workflow.add_node(generate_answer)
-
-
 
     # Decide whether to retrieve
     workflow.add_conditional_edges(
@@ -210,7 +219,7 @@ with (RedisSaver.from_conn_string(os.getenv("REDIS_URL")) as checkpointer,
     # Compile
     graph = workflow.compile(checkpointer=checkpointer, store=store)
 
-    config = {"configurable": {"thread_id": "1", "user_id": "1"}}
+    config = {"configurable": {"thread_id": str(uuid.uuid4()), "user_id": "1"}}
 
     while True:
         question = input("User: ")
@@ -238,10 +247,6 @@ with (RedisSaver.from_conn_string(os.getenv("REDIS_URL")) as checkpointer,
                     print(json.dumps(request, indent=2))
             else:
                 pass
-
-
-
-
 
 # import matplotlib
 # matplotlib.use("TkAgg")  # 或 QtAgg
