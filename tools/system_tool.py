@@ -3,6 +3,7 @@ from langchain.messages import RemoveMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langchain.tools import tool, ToolRuntime
 
+from retriever.get_retriever import get_retriever
 from retriever.vector_store import get_vector_store
 
 
@@ -39,3 +40,9 @@ def retrieve_context(query: str):
         for doc in retrieved_docs
     )
     return serialized, retrieved_docs
+
+@tool
+def retriever_tool(query: str) -> str:
+    """搜索并返回关于手机的信息."""
+    docs = get_retriever().invoke(query)
+    return "\n\n".join([doc.page_content for doc in docs])
