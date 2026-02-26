@@ -69,6 +69,10 @@ requirements.txt.bak
 pip-log.txt
 pip-selfcheck.json
 
+# Frontend dependencies
+frontend/node_modules/
+frontend/dist/
+
 # Jupyter Notebook
 .ipynb_checkpoints/
 

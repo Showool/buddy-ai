@@ -1,122 +1,181 @@
-# Buddy-AI
+# Buddy-AI 智能问答助手
 
-一个基于 Langchain和Langgraph 构建的智能问答系统，结合了 RAG (Retrieval Augmented Generation) 技术和向量数据库，支持用户上传知识库文档并进行智能问答。
+基于 LangGraph 和 RAG 的中文智能问答系统，支持向量数据库检索、网络搜索和长期记忆功能。
 
-## 🌟 特性
+## 项目架构
 
-- **智能问答**: 基于大语言模型的智能对话系统
-- **知识库上传**: 支持 PDF, DOCX, TXT, MD, CSV 格式的文档上传
-- **向量化存储**: 使用 Chroma 向量数据库存储和检索知识
-- **双路检索**: 结合本地向量数据库和 Tavily 网络搜索
-- **对话历史**: 保持对话上下文，提供连贯交互体验
-- **响应式界面**: 使用 Streamlit 构建的现代化用户界面
+- **后端**: FastAPI + LangGraph + Chroma Vector DB
+- **前端**: Vue3 + TypeScript + Pinia
+- **LLM**: 阿里云 DashScope (Qwen 模型)
+- **向量库**: Chroma
+- **记忆**: PostgreSQL
+- **会话**: Redis
 
-## 🏗️ 项目架构
+## 功能特性
 
-```
-buddy-ai/
-├── agent/              # 智能体框架
-│   ├── agent_context.py
-│   ├── create_agent.py
-│   └── response_format.py
-├── data_base/          # 数据库管理
-│   ├── knowledge_db/   # 知识库文件
-│   ├── create_vector_db.py
-│   └── vectorize_files.py
-├── embedding/          # 嵌入模型
-│   └── get_embeddings_model.py
-├── llm/               # 大语言模型管理
-├── memory/            # 对话记忆管理
-├── prompt/            # 提示词管理
-│   └── prompt.py
-├── qa_chain/          # 问答链
-│   ├── get_qa_history_chain.py
-│   └── get_response.py
-├── rag/               # RAG 组件
-│   ├── get_retriever.py
-│   └── get_vector_store.py
-├── tools/             # 工具函数
-│   ├── __init__.py
-│   ├── system_tool.py
-│   └── user_tool.py
-├── streamlit_app.py   # 主应用入口
-└── .env              # 环境变量配置
-```
+- 🤖 **智能对话**: 基于 LangGraph 的多轮对话
+- 📚 **知识库检索**: 支持文件上传和向量检索
+- 🔍 **网络搜索**: Tavily API 实时搜索
+- 💾 **长期记忆**: 用户偏好和历史记录存储
+- 📁 **文件支持**: PDF, DOCX, TXT, MD, CSV
+- 💬 **多会话**: 支持多个对话会话管理
+- 🎨 **现代化UI**: 参考豆包设计风格
 
-## 🚀 快速开始
+## 快速开始
 
-### 环境准备
+### 环境要求
+
+- Python 3.10+
+- Node.js 18+
+- Redis
+- PostgreSQL
+- 阿里云 DashScope API Key
+- Tavily API Key
+
+### 安装
 
 1. 克隆项目
 ```bash
-git clone <repository-url>
+git clone https://github.com/your-repo/buddy-ai.git
 cd buddy-ai
 ```
 
-2. 安装依赖
+2. 安装后端依赖
 ```bash
+cd backend
 pip install -r requirements.txt
 ```
 
-3. 配置环境变量
+3. 安装前端依赖
 ```bash
-# 复制示例配置
+cd ../frontend
+npm install
+```
+
+### 配置
+
+1. 复制环境变量文件
+```bash
+cd backend
 cp .env.example .env
-
-# 编辑配置文件，填入 API 密钥
-nano .env
 ```
 
-### 运行应用
+2. 编辑 `.env` 文件，填入 API Keys
+```env
+DASHSCOPE_API_KEY=your_dashscope_api_key
+TAVILY_API_KEY=your_tavily_api_key
+REDIS_URL=redis://localhost:6379/0
+POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddyai
+```
+
+### 运行
+
+#### 使用 Docker Compose (推荐)
 
 ```bash
-# 启动 Streamlit 应用
-streamlit run streamlit_app.py
+docker-compose up -d
 ```
 
-## 🔧 配置说明
+#### 手动运行
 
-项目使用 `.env` 文件管理配置，主要包含：
+1. 启动后端
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-- `DASHSCOPE_API_KEY`: 通义千问 API 密钥
-- `TAVILY_API_KEY`: Tavily 搜索 API 密钥
+2. 启动前端
+```bash
+cd frontend
+npx vite
+```
 
-## 📁 文件上传与向量化
+### 访问
 
-1. 在侧边栏点击"上传知识库文件"
-2. 选择支持格式的文档（单个文件不超过 5MB）
-3. 点击"向量化"按钮将文档内容添加到向量数据库
-4. 向 AI 提问，系统将结合知识库内容回答
+- 前端: http://localhost:3000
+- 后端API: http://localhost:8000
+- API文档: http://localhost:8000/docs
 
-## 🛠️ 技术栈
+## 项目结构
 
-- **前端**: Streamlit
-- **向量数据库**: Chroma
-- **嵌入模型**: DashScope 文本嵌入
-- **语言模型**: 通义千问系列
-- **文档处理**: LangChain Document Loaders
-- **搜索服务**: Tavily Search API
-- **智能体**: LangGraph
+```
+buddy-ai/
+├── backend/                 # FastAPI 后端
+│   ├── app/
+│   │   ├── api/v1/         # API 路由
+│   │   ├── agent/          # LangGraph Agent
+│   │   ├── tools/          # 工具
+│   │   ├── memory/         # 记忆
+│   │   ├── retriever/      # 检索
+│   │   └── models/         # Pydantic 模型
+│   ├── requirements.txt
+│   └── .env.example
+├── frontend/               # Vue3 前端
+│   ├── src/
+│   │   ├── components/     # 组件
+│   │   ├── views/          # 页面
+│   │   ├── stores/         # Pinia 状态
+│   │   ├── api/            # API 客户端
+│   │   └── composables/    # 组合式函数
+│   └── package.json
+├── docker-compose.yml
+└── README.md
+```
 
-## 📚 支持的文档格式
+## API 文档
 
-- PDF (.pdf)
-- Word 文档 (.docx)
-- 纯文本 (.txt)
-- Markdown (.md)
-- CSV 表格 (.csv)
+启动后端后访问 http://localhost:8000/docs 查看 Swagger API 文档。
 
-## 💡 使用场景
+### WebSocket 聊天
 
-- **企业知识库**: 存储和查询企业内部文档
-- **学术研究**: 管理和检索学术论文
-- **个人助手**: 创建个性化知识问答系统
-- **客户服务**: 自动回答常见问题
+```
+ws://localhost:8000/ws/chat/{user_id}
+```
 
-## 🤝 贡献
+发送消息:
+```json
+{
+  "type": "user_message",
+  "content": "你好",
+  "thread_id": "可选的会话ID"
+}
+```
 
-欢迎提交 Issue 和 Pull Request 来帮助改进项目。
+### REST API
 
-## 📄 许可证
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| /api/v1/files/upload | POST | 上传文件 |
+| /api/v1/files/vectorize | POST | 向量化文件 |
+| /api/v1/sessions | GET | 获取会话列表 |
+| /api/v1/sessions | POST | 创建会话 |
+| /api/v1/memory | GET | 获取记忆 |
+| /api/v1/memory | POST | 保存记忆 |
+
+## 开发指南
+
+### 后端开发
+
+```bash
+cd backend
+# 添加新依赖
+pip install package_name
+# 更新 requirements.txt
+pip freeze > requirements.txt
+```
+
+### 前端开发
+
+```bash
+cd frontend
+# 添加新依赖
+npm install package_name
+# 开发模式
+npm run dev
+# 构建
+npm run build
+```
+
+## 许可证
 
 MIT License
