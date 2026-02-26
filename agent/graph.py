@@ -4,7 +4,7 @@ import os
 from langgraph.checkpoint.redis import RedisSaver
 from langgraph.store.postgres import PostgresStore
 from agent.node import generate_query_or_respond, rewrite_question, generate_answer, grade_documents
-from langgraph.graph import MessagesState
+from agent.state import AgentState
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from tools import get_tools
@@ -16,7 +16,7 @@ def get_graph():
         # checkpointer.setup()
         # store.setup()
 
-        workflow = StateGraph(MessagesState)
+        workflow = StateGraph(AgentState)
         # Define the nodes we will cycle between
         workflow.add_node(generate_query_or_respond)
         workflow.add_edge(START, "generate_query_or_respond")

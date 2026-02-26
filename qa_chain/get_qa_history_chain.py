@@ -1,6 +1,6 @@
 import os
 
-from langchain_community.tools import TavilySearchResults
+from langchain_tavily import TavilySearchResults
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableBranch, RunnablePassthrough, RunnableLambda
