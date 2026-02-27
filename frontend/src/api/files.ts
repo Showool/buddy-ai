@@ -28,7 +28,7 @@ export const filesApi = {
         },
       }
     )
-    return response
+    return response.data
   },
 
   // 向量化文件
@@ -37,13 +37,13 @@ export const filesApi = {
       '/api/v1/files/vectorize',
       { file_ids: fileIds }
     )
-    return response
+    return response.data
   },
 
   // 获取文件列表
   async list(): Promise<{ files: UploadedFile[] }> {
     const response = await api.get<{ files: UploadedFile[] }>('/api/v1/files')
-    return response
+    return response.data
   },
 
   // 删除文件
@@ -51,6 +51,6 @@ export const filesApi = {
     const response = await api.delete<{ status: string; message: string }>(
       `/api/v1/files/${fileId}`
     )
-    return response
+    return response.data
   },
 }

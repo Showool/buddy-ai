@@ -6,6 +6,7 @@ export interface Message {
   role: MessageRole
   content: string
   timestamp?: string
+  file?: UploadedFile
 }
 
 export interface DebugInfo {
@@ -75,4 +76,10 @@ export interface ErrorMessage {
   code?: string
 }
 
-export type WSMessage = AgentStepMessage | AgentCompleteMessage | ErrorMessage
+export interface UserMessageRequest {
+  type: MessageType.USER_MESSAGE
+  content: string
+  thread_id?: string
+}
+
+export type WSMessage = AgentStepMessage | AgentCompleteMessage | ErrorMessage | UserMessageRequest

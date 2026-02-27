@@ -1,17 +1,25 @@
-/* 全局样式 */
-* {
+@import './variables.css';
+
+/* ========================================
+   全局基础样式
+   ======================================== */
+html,
+body {
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
+  overflow: hidden;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
+  color: var(--el-text-color-primary);
+  background: var(--el-bg-color-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
 }
 
 #app {
@@ -19,21 +27,104 @@ body {
   height: 100vh;
 }
 
-/* 滚动条样式 */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ========================================
+   响应式断点
+   ======================================== */
+@media (max-width: 1536px) {
+  :root {
+    --sidebar-width: 260px;
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
+@media (max-width: 1280px) {
+  :root {
+    --sidebar-width: 240px;
+    --debug-panel-width: 280px;
+  }
 }
 
-::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 220px;
+    --debug-panel-width: 250px;
+  }
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 200px;
+    --debug-panel-width: 0;
+  }
+}
+
+
+/* ========================================
+   动画
+   ======================================== */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ========================================
+   打印样式
+   ======================================== */
+@media print {
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .sidebar,
+  .debug-panel,
+  .chat-input-container {
+    display: none !important;
+  }
 }

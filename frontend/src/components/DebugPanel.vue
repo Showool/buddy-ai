@@ -2,25 +2,27 @@
   <div class="debug-panel">
     <div class="debug-header">
       <h3>🔍 调试信息</h3>
-      <button class="close-button" @click="$emit('close')">×</button>
+      <el-button text size="small" @click="$emit('close')">
+        <el-icon><Close /></el-icon>
+      </el-button>
     </div>
     <div class="debug-content">
       <div v-if="debugInfo.length === 0" class="empty-debug">
         暂无调试信息
       </div>
-      <div v-else class="debug-list">
-        <div
+      <el-collapse v-else class="debug-list">
+        <el-collapse-item
           v-for="(item, index) in debugInfo"
           :key="index"
-          class="debug-item"
-          @click="expandedIndex = expandedIndex === index ? -1 : index"
+          :name="index"
         >
-          <div class="debug-item-header">
-            <span class="debug-icon">{{ getDebugIcon(item) }}</span>
-            <span class="debug-title">{{ getDebugTitle(item) }}</span>
-            <span class="debug-arrow">{{ expandedIndex === index ? '▼' : '▶' }}</span>
-          </div>
-          <div v-if="expandedIndex === index" class="debug-item-content">
+          <template #title>
+            <div class="debug-item-header">
+              <span class="debug-icon">{{ getDebugIcon(item) }}</span>
+              <span class="debug-title">{{ getDebugTitle(item) }}</span>
+            </div>
+          </template>
+          <div class="debug-item-content">
             <div v-if="item.tool_calls" class="tool-calls">
               <div class="section-title">工具调用:</div>
               <pre>{{ JSON.stringify(item.tool_calls, null, 2) }}</pre>
@@ -28,18 +30,21 @@
             <div class="section-title">内容:</div>
             <pre>{{ item.content }}</pre>
           </div>
-        </div>
-      </div>
+        </el-collapse-item>
+      </el-collapse>
     </div>
     <div class="debug-footer">
-      <button class="clear-button" @click="$emit('clear')">清除调试信息</button>
+      <el-button type="warning" size="small" @click="$emit('clear')">
+        <el-icon><Delete /></el-icon>
+        清除调试信息
+      </el-button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import type { DebugInfo } from '@/types'
+import { Close, Delete } from '@element-plus/icons-vue'
 
 defineEmits<{
   (e: 'close'): void
@@ -49,8 +54,6 @@ defineEmits<{
 defineProps<{
   debugInfo: DebugInfo[]
 }>()
-
-const expandedIndex = ref(-1)
 
 function getDebugIcon(item: DebugInfo): string {
   switch (item.message_type) {
@@ -87,36 +90,22 @@ function getDebugTitle(item: DebugInfo): string {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #f5f5f5;
+  background: var(--el-bg-color-page);
 }
 
 .debug-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid #e5e5e5;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--el-border-color);
 }
 
 .debug-header h3 {
   font-size: 14px;
   font-weight: 600;
   margin: 0;
-}
-
-.close-button {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: #666;
-  font-size: 18px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.close-button:hover {
-  background: rgba(0, 0, 0, 0.04);
+  color: var(--el-text-color-primary);
 }
 
 .debug-content {
@@ -128,7 +117,7 @@ function getDebugTitle(item: DebugInfo): string {
 .empty-debug {
   padding: 24px;
   text-align: center;
-  color: #999;
+  color: var(--el-text-color-secondary);
   font-size: 14px;
 }
 
@@ -138,19 +127,12 @@ function getDebugTitle(item: DebugInfo): string {
   gap: 8px;
 }
 
-.debug-item {
-  background: #fff;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: pointer;
-}
-
 .debug-item-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
   font-size: 13px;
+  color: var(--el-text-color-primary);
 }
 
 .debug-icon {
@@ -159,34 +141,33 @@ function getDebugTitle(item: DebugInfo): string {
 
 .debug-title {
   flex: 1;
-  color: #1a1a1a;
-}
-
-.debug-arrow {
-  color: #999;
-  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .debug-item-content {
   padding: 0 12px 12px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--el-border-color-lighter);
+  margin-top: 8px;
 }
 
 .section-title {
   font-size: 11px;
   font-weight: 600;
-  color: #666;
+  color: var(--el-text-color-secondary);
   margin: 8px 0 4px;
 }
 
 .debug-item-content pre {
-  background: #f5f5f5;
+  background: var(--el-fill-color-light);
   padding: 8px;
   border-radius: 4px;
   font-size: 12px;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--el-text-color-primary);
 }
 
 .tool-calls {
@@ -195,21 +176,6 @@ function getDebugTitle(item: DebugInfo): string {
 
 .debug-footer {
   padding: 12px 16px;
-  border-top: 1px solid #e5e5e5;
-}
-
-.clear-button {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #e5e5e5;
-  border-radius: 6px;
-  background: #fff;
-  color: #666;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.clear-button:hover {
-  background: #f0f0f0;
+  border-top: 1px solid var(--el-border-color);
 }
 </style>

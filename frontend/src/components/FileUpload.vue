@@ -1,65 +1,65 @@
 <template>
-  <div v-if="visible" class="file-upload-modal" @click.self="handleClose">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>上传知识库文件</h3>
-        <button class="close-button" @click="handleClose">×</button>
+  <el-dialog
+    v-model="dialogVisible"
+    title="上传知识库文件"
+    width="600px"
+    @close="handleClose"
+  >
+    <div class="modal-body">
+      <el-upload
+        ref="uploadRef"
+        drag
+        :auto-upload="false"
+        :show-file-list="false"
+        :accept="acceptTypes"
+        :on-change="handleFileSelect"
+      >
+        <el-icon class="upload-icon"><Upload /></el-icon>
+        <div class="upload-text">拖拽文件到此处，或点击选择文件</div>
+      </el-upload>
+
+      <div class="upload-info">
+        <p>支持的文件类型: PDF, DOCX, TXT, MD, CSV</p>
+        <p>最大文件大小: 5MB</p>
       </div>
 
-      <div class="modal-body">
-        <div
-          class="upload-area"
-          :class="{ 'drag-over': isDragOver }"
-          @dragover.prevent="isDragOver = true"
-          @dragleave.prevent="isDragOver = false"
-          @drop.prevent="handleDrop"
-        >
-          <div class="upload-icon">📁</div>
-          <p>拖拽文件到此处，或点击选择文件</p>
-          <input
-            ref="fileInput"
-            type="file"
-            class="file-input"
-            :accept="acceptTypes"
-            @change="handleFileSelect"
-          />
-          <button class="select-button" @click="fileInput?.click()">
-            选择文件
-          </button>
-        </div>
-
-        <div class="upload-info">
-          <p>支持的文件类型: PDF, DOCX, TXT, MD, CSV</p>
-          <p>最大文件大小: 5MB</p>
-        </div>
-
-        <div v-if="uploadedFiles.length > 0" class="uploaded-files">
-          <h4>已上传文件</h4>
-          <div class="file-list">
-            <div v-for="file in uploadedFiles" :key="file.id" class="file-item">
-              <span class="file-name">📄 {{ file.filename }}</span>
-              <span class="file-status" :class="file.status">
-                {{ getStatusText(file.status) }}
-              </span>
-              <button
-                v-if="file.status === 'uploaded'"
-                class="vectorize-btn"
-                @click="handleVectorize(file.id)"
-              >
-                向量化
-              </button>
-            </div>
+      <div v-if="uploadedFiles.length > 0" class="uploaded-files">
+        <h4>已上传文件</h4>
+        <div class="file-list">
+          <div v-for="file in uploadedFiles" :key="file.id" class="file-item">
+            <span class="file-icon">📄</span>
+            <span class="file-name">{{ file.filename }}</span>
+            <el-tag
+              size="small"
+              :type="getStatusTagType(file.status)"
+            >
+              {{ getStatusText(file.status) }}
+            </el-tag>
+            <el-button
+              v-if="file.status === 'uploaded'"
+              type="success"
+              size="small"
+              @click="handleVectorize(file.id)"
+            >
+              向量化
+            </el-button>
           </div>
         </div>
       </div>
     </div>
-  </div>
+
+    <template #footer>
+      <el-button @click="handleClose">关闭</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import axios from 'axios'
+import { ref, computed } from 'vue'
+import type { UploadInstance, UploadUserFile } from 'element-plus'
+import { filesApi } from '@/api/files'
 import type { UploadedFile } from '@/types'
+import { Upload } from '@element-plus/icons-vue'
 
 interface Props {
   visible: boolean
@@ -71,66 +71,51 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const isDragOver = ref(false)
-const fileInput = ref<HTMLInputElement>()
+const uploadRef = ref<UploadInstance>()
 const uploadedFiles = ref<UploadedFile[]>([])
+
+const dialogVisible = computed({
+  get: () => props.visible,
+  set: (val) => {
+    if (!val) emit('close')
+  }
+})
 
 const acceptTypes = '.pdf,.docx,.txt,.md,.csv'
 
-async function handleFileSelect(event: Event) {
-  const target = event.target as HTMLInputElement
-  const files = target.files
-  if (files && files.length > 0) {
-    await uploadFile(files[0])
-  }
-}
-
-function handleDrop(event: DragEvent) {
-  isDragOver.value = false
-  const files = event.dataTransfer?.files
-  if (files && files.length > 0) {
-    uploadFile(files[0])
-  }
-}
-
-async function uploadFile(file: File) {
-  const formData = new FormData()
-  formData.append('file', file)
-
-  try {
-    const response = await axios.post<UploadedFile>('/api/v1/files/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    })
-
-    uploadedFiles.value.unshift(response.data)
-  } catch (error) {
-    console.error('上传文件失败:', error)
-    alert('上传文件失败')
+async function handleFileSelect(file: UploadUserFile) {
+  const rawFile = file.raw
+  if (rawFile) {
+    try {
+      const uploaded = await filesApi.upload(rawFile)
+      uploadedFiles.value.unshift(uploaded)
+      // 清空上传组件的文件列表
+      uploadRef.value?.clearFiles()
+    } catch (error) {
+      console.error('上传文件失败:', error)
+      // 使用 Element Plus 的消息提示会更好，但这里简单处理
+      console.error('上传文件失败')
+    }
   }
 }
 
 async function handleVectorize(fileId: string) {
   try {
-    const response = await axios.post('/api/v1/files/vectorize', {
-      file_ids: [fileId],
-    })
+    const response = await filesApi.vectorize([fileId])
 
-    if (response.data.status === 'success') {
+    if (response.status === 'success') {
       // 更新文件状态
       const file = uploadedFiles.value.find(f => f.id === fileId)
       if (file) {
         file.status = 'vectorized'
         file.vectorized = true
       }
-      alert(`向量化成功！生成 ${response.data.chunk_count} 个文本块`)
+      console.log(`向量化成功！生成 ${response.chunk_count} 个文本块`)
     } else {
-      alert(response.data.message || '向量化失败')
+      console.error(response.message || '向量化失败')
     }
   } catch (error) {
     console.error('向量化失败:', error)
-    alert('向量化失败')
   }
 }
 
@@ -150,129 +135,58 @@ function getStatusText(status: string): string {
       return status
   }
 }
+
+function getStatusTagType(status: string): '' | 'success' | 'danger' | 'info' | 'warning' {
+  switch (status) {
+    case 'vectorized':
+      return 'success'
+    case 'failed':
+      return 'danger'
+    default:
+      return 'info'
+  }
+}
 </script>
 
 <style scoped>
-.file-upload-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  width: 90%;
-  max-width: 600px;
-  background: #fff;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px;
-  border-bottom: 1px solid #e5e5e5;
-}
-
-.modal-header h3 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.close-button {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  color: #666;
-  font-size: 24px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.close-button:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-
 .modal-body {
-  padding: 20px;
-}
-
-.upload-area {
-  border: 2px dashed #d0d0d0;
-  border-radius: 12px;
-  padding: 40px 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.upload-area:hover,
-.upload-area.drag-over {
-  border-color: #1890ff;
-  background: rgba(24, 144, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .upload-icon {
   font-size: 48px;
   margin-bottom: 16px;
+  color: var(--el-text-color-secondary);
 }
 
-.upload-area p {
+.upload-text {
   font-size: 14px;
-  color: #666;
-  margin-bottom: 16px;
+  color: var(--el-text-color-secondary);
 }
 
-.file-input {
-  display: none;
-}
-
-.select-button {
-  padding: 10px 24px;
-  border: none;
-  border-radius: 8px;
-  background: #1890ff;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.select-button:hover {
-  background: #40a9ff;
+:deep(.el-upload-dragger) {
+  padding: 40px 20px;
 }
 
 .upload-info {
-  margin-top: 16px;
   padding: 12px;
-  background: #f5f5f5;
+  background: var(--el-fill-color-light);
   border-radius: 8px;
 }
 
 .upload-info p {
   font-size: 12px;
-  color: #666;
+  color: var(--el-text-color-secondary);
   margin: 4px 0;
-}
-
-.uploaded-files {
-  margin-top: 24px;
 }
 
 .uploaded-files h4 {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 12px;
+  color: var(--el-text-color-primary);
 }
 
 .file-list {
@@ -284,50 +198,23 @@ function getStatusText(status: string): string {
 .file-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 12px;
-  background: #f5f5f5;
+  background: var(--el-fill-color-blank);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
+}
+
+.file-icon {
+  font-size: 20px;
 }
 
 .file-name {
   flex: 1;
   font-size: 14px;
-  color: #1a1a1a;
-}
-
-.file-status {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-.file-status.uploaded {
-  background: #e6f7ff;
-  color: #1890ff;
-}
-
-.file-status.vectorized {
-  background: #f6ffed;
-  color: #52c41a;
-}
-
-.file-status.failed {
-  background: #fff1f0;
-  color: #ff4d4f;
-}
-
-.vectorize-btn {
-  padding: 6px 12px;
-  border: none;
-  border-radius: 6px;
-  background: #1890ff;
-  color: #fff;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.vectorize-btn:hover {
-  background: #40a9ff;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
