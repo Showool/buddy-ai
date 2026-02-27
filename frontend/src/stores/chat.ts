@@ -8,6 +8,7 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const debugInfo = ref<DebugInfo[]>([])
   const currentThreadId = ref<string | null>(null)
+  const debugPanelVisible = ref(false)
 
   function addMessage(message: Message) {
     messages.value.push(message)
@@ -27,6 +28,10 @@ export const useChatStore = defineStore('chat', () => {
 
   function addDebugInfo(info: DebugInfo) {
     debugInfo.value.push(info)
+  }
+
+  function clearDebug() {
+    debugInfo.value = []
   }
 
   function handleWSMessage(data: WSMessage) {
@@ -76,9 +81,11 @@ export const useChatStore = defineStore('chat', () => {
     isStreaming,
     debugInfo,
     currentThreadId,
+    debugPanelVisible,
     addMessage,
     updateLastMessage,
     clearMessages,
+    clearDebug,
     addDebugInfo,
     handleWSMessage,
   }

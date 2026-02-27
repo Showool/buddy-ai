@@ -22,7 +22,7 @@ export const useSessionStore = defineStore('session', () => {
     const newSession: Session = {
       thread_id: threadId,
       user_id: userId.value,
-      title: null,
+      title: undefined,
       created_at: now,
       updated_at: now,
       message_count: 0,

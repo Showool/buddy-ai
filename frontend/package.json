@@ -15,9 +15,9 @@
     "vue-router": "^4.2.5",
     "pinia": "^2.1.7",
     "@vueuse/core": "^10.7.0",
-    "marked": "^11.1.0",
-    "highlight.js": "^11.9.0",
-    "axios": "^1.6.5"
+    "axios": "^1.6.5",
+    "element-plus": "^2.5.0",
+    "@element-plus/icons-vue": "^2.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
@@ -29,6 +29,8 @@
     "eslint-plugin-vue": "^9.19.2",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
-    "prettier": "^3.1.1"
+    "prettier": "^3.1.1",
+    "unplugin-vue-components": "^0.26.0",
+    "unplugin-auto-import": "^0.17.3"
   }
 }

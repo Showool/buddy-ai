@@ -1,18 +1,24 @@
 """
-文件上传 API
+文件上传 API - 增强版
 """
 
+import logging
 import os
 import uuid
 import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, HTTPException, status, Query
 
 from app.config import settings
-from app.models.file import FileUploadResponse, VectorizeResponse, VectorizeRequest
+from app.models.file import (
+    FileUploadResponse, VectorizeResponse, VectorizeRequest,
+    FileInfo, FileListResponse, DeleteFileResponse
+)
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -40,6 +46,23 @@ def validate_file(filename: str, size: int):
         )
 
 
+def get_chroma_collection():
+    """获取ChromaDB集合"""
+    try:
+        from langchain_chroma import Chroma
+        from app.retriever.embeddings_model import get_embeddings_model
+
+        vectordb = Chroma(
+            persist_directory=settings.CHROMA_PERSIST_DIR,
+            embedding_function=get_embeddings_model(),
+            collection_name=settings.CHROMA_COLLECTION_NAME
+        )
+        return vectordb
+    except Exception as e:
+        logger.error(f"获取ChromaDB集合失败: {e}")
+        return None
+
+
 @router.post("/files/upload", response_model=FileUploadResponse)
 async def upload_file(file: UploadFile = File(...)):
     """上传文件"""
@@ -58,6 +81,8 @@ async def upload_file(file: UploadFile = File(...)):
         with open(save_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
+        logger.info(f"文件上传成功: {file.filename} (ID: {file_id})")
+
         return FileUploadResponse(
             id=file_id,
             filename=file.filename or "",
@@ -69,6 +94,7 @@ async def upload_file(file: UploadFile = File(...)):
         # 保存失败，删除文件
         if save_path.exists():
             save_path.unlink()
+        logger.error(f"文件保存失败: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"文件保存失败: {str(e)}"
@@ -98,20 +124,16 @@ async def vectorize_files(request: VectorizeRequest):
 
     try:
         # 调用向量化函数
-        success = vectorize_uploaded_files(file_paths)
+        result = vectorize_uploaded_files(file_paths)
 
-        if success:
-            # 计算chunk数量（简化计算）
-            chunk_count = 0
-            for file_path in file_paths:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    chunk_count += len(content) // 450 + 1
-
+        if result.get("success"):
+            chunk_count = result.get("chunk_count", 0)
+            file_metadata = result.get("file_metadata", {})
+            logger.info(f"文件向量化成功，共 {chunk_count} 个chunk，涉及 {len(file_metadata)} 个文件")
             return VectorizeResponse(
                 status="success",
                 chunk_count=chunk_count,
-                message="向量化成功"
+                message=f"向量化成功，处理了 {len(file_metadata)} 个文件"
             )
         else:
             return VectorizeResponse(
@@ -120,6 +142,7 @@ async def vectorize_files(request: VectorizeRequest):
                 message="向量化失败"
             )
     except Exception as e:
+        logger.error(f"向量化失败: {e}")
         return VectorizeResponse(
             status="failed",
             chunk_count=0,
@@ -127,41 +150,209 @@ async def vectorize_files(request: VectorizeRequest):
         )
 
 
-@router.get("/files")
-async def list_files():
-    """列出已上传的文件"""
+@router.get("/files", response_model=FileListResponse)
+async def list_files(
+    user_id: Optional[str] = Query(None, description="用户ID，用于权限验证")
+):
+    """
+    列出已上传的文件
+
+    从向量数据库和上传目录中获取文件信息
+    """
     files = []
     upload_dir = Path(settings.UPLOAD_DIR)
 
+    # 首先从上传目录获取文件
+    uploaded_files = {}
     if upload_dir.exists():
         for file_path in upload_dir.iterdir():
             if file_path.is_file():
-                files.append({
-                    "id": file_path.stem,
+                file_id = file_path.stem
+                file_ext = file_path.suffix.lstrip('.')
+                uploaded_files[file_id] = {
+                    "file_id": file_id,
                     "filename": file_path.name,
-                    "size": file_path.stat().st_size
-                })
+                    "file_type": file_ext,
+                    "file_size": file_path.stat().st_size,
+                    "upload_time": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+                    "vectorized": False,
+                    "chunk_count": 0
+                }
 
-    return {"files": files}
+    # 从ChromaDB获取已向量化文件的信息
+    chroma_collection = get_chroma_collection()
+    if chroma_collection:
+        try:
+            # 获取所有文档的元数据
+            all_docs = chroma_collection.get(include=["metadatas"])
+            if all_docs and all_docs.get("metadatas"):
+                # 收集已向量化文件的信息
+                vectorized_files = {}
+                for metadata in all_docs["metadatas"]:
+                    file_id = metadata.get("file_id")
+                    if file_id and file_id not in vectorized_files:
+                        # 统计该文件的chunk数量
+                        chunk_count = sum(
+                            1 for m in all_docs["metadatas"]
+                            if m.get("file_id") == file_id
+                        )
+                        vectorized_files[file_id] = {
+                            "file_id": file_id,
+                            "filename": metadata.get("filename", f"{file_id}.unknown"),
+                            "file_type": metadata.get("file_type", "unknown"),
+                            "file_size": metadata.get("file_size", 0),
+                            "upload_time": metadata.get("upload_time", ""),
+                            "vectorized": True,
+                            "chunk_count": chunk_count
+                        }
+
+                # 合并文件信息（已向量化文件的优先）
+                for file_id, info in vectorized_files.items():
+                    uploaded_files[file_id] = info
+
+        except Exception as e:
+            logger.error(f"从ChromaDB获取文件信息失败: {e}")
+
+    # 转换为FileInfo对象并按上传时间排序
+    for file_info in uploaded_files.values():
+        try:
+            files.append(FileInfo(**file_info))
+        except Exception as e:
+            logger.warning(f"文件信息格式错误: {e}, 跳过文件 {file_info.get('file_id')}")
+
+    # 按上传时间倒序排序
+    files.sort(key=lambda x: x.upload_time, reverse=True)
+
+    logger.info(f"获取文件列表成功，共 {len(files)} 个文件")
+
+    return FileListResponse(
+        files=files,
+        total=len(files)
+    )
 
 
-@router.delete("/files/{file_id}")
-async def delete_file(file_id: str):
-    """删除文件"""
+@router.delete("/files/{file_id}", response_model=DeleteFileResponse)
+async def delete_file(
+    file_id: str,
+    user_id: Optional[str] = Query(None, description="用户ID，用于权限验证")
+):
+    """
+    删除文件
+
+    同时删除上传目录中的文件和向量数据库中的相关数据
+    """
     upload_dir = Path(settings.UPLOAD_DIR)
+    deleted_from_disk = False
+    deleted_from_db = False
 
-    # 查找文件
+    # 1. 从上传目录删除文件
     for file_path in upload_dir.glob(f"{file_id}.*"):
         try:
             file_path.unlink()
-            return {"status": "success", "message": "文件已删除"}
+            deleted_from_disk = True
+            logger.info(f"从磁盘删除文件: {file_path}")
         except Exception as e:
+            logger.error(f"从磁盘删除文件失败: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"文件删除失败: {str(e)}"
             )
 
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="文件不存在"
+    # 2. 从ChromaDB删除相关向量数据
+    chroma_collection = get_chroma_collection()
+    if chroma_collection:
+        try:
+            # 获取所有文档
+            all_docs = chroma_collection.get(include=["metadatas"])
+            if all_docs and all_docs.get("metadatas"):
+                # 找到该文件的所有文档ID
+                doc_ids_to_delete = []
+                for idx, metadata in enumerate(all_docs["metadatas"]):
+                    if metadata.get("file_id") == file_id:
+                        if all_docs.get("ids") and idx < len(all_docs["ids"]):
+                            doc_ids_to_delete.append(all_docs["ids"][idx])
+
+                # 删除这些文档
+                if doc_ids_to_delete:
+                    chroma_collection.delete(ids=doc_ids_to_delete)
+                    deleted_from_db = True
+                    logger.info(f"从ChromaDB删除了 {len(doc_ids_to_delete)} 个文档片段")
+
+        except Exception as e:
+            logger.error(f"从ChromaDB删除文件失败: {e}")
+            # 数据库删除失败不影响整体流程，继续
+
+    # 检查是否有文件被删除
+    if not deleted_from_disk and not deleted_from_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文件不存在"
+        )
+
+    return DeleteFileResponse(
+        status="success",
+        message="文件已删除",
+        file_id=file_id
     )
+
+
+@router.get("/files/{file_id}", response_model=FileInfo)
+async def get_file_info(
+    file_id: str,
+    user_id: Optional[str] = Query(None, description="用户ID，用于权限验证")
+):
+    """
+    获取单个文件信息
+
+    从向量数据库中获取文件的详细信息
+    """
+    upload_dir = Path(settings.UPLOAD_DIR)
+
+    # 首先从上传目录获取基本信息
+    file_info = None
+    for file_path in upload_dir.glob(f"{file_id}.*"):
+        if file_path.is_file():
+            file_info = {
+                "file_id": file_id,
+                "filename": file_path.name,
+                "file_type": file_path.suffix.lstrip('.'),
+                "file_size": file_path.stat().st_size,
+                "upload_time": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+                "vectorized": False,
+                "chunk_count": 0
+            }
+            break
+
+    # 从ChromaDB获取更详细的信息
+    chroma_collection = get_chroma_collection()
+    if chroma_collection:
+        try:
+            all_docs = chroma_collection.get(include=["metadatas"])
+            if all_docs and all_docs.get("metadatas"):
+                for metadata in all_docs["metadatas"]:
+                    if metadata.get("file_id") == file_id:
+                        # 统计chunk数量
+                        chunk_count = sum(
+                            1 for m in all_docs["metadatas"]
+                            if m.get("file_id") == file_id
+                        )
+                        file_info = {
+                            "file_id": file_id,
+                            "filename": metadata.get("filename", f"{file_id}.unknown"),
+                            "file_type": metadata.get("file_type", "unknown"),
+                            "file_size": metadata.get("file_size", 0),
+                            "upload_time": metadata.get("upload_time", ""),
+                            "vectorized": True,
+                            "chunk_count": chunk_count
+                        }
+                        break
+        except Exception as e:
+            logger.error(f"从ChromaDB获取文件信息失败: {e}")
+
+    if not file_info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文件不存在"
+        )
+
+    return FileInfo(**file_info)

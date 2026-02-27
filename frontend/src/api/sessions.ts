@@ -22,13 +22,13 @@ export const sessionsApi = {
     const response = await api.get<SessionsResponse>('/api/v1/sessions', {
       params: { user_id: userId },
     })
-    return response
+    return response.data
   },
 
   // 获取单个会话
   async get(threadId: string): Promise<Session> {
     const response = await api.get<Session>(`/api/v1/sessions/${threadId}`)
-    return response
+    return response.data
   },
 
   // 创建新会话
@@ -38,7 +38,7 @@ export const sessionsApi = {
       null,
       { params: { user_id: userId } }
     )
-    return response
+    return response.data
   },
 
   // 删除会话
@@ -46,7 +46,7 @@ export const sessionsApi = {
     const response = await api.delete<{ status: string; message: string }>(
       `/api/v1/sessions/${threadId}`
     )
-    return response
+    return response.data
   },
 
   // 更新会话标题
@@ -59,7 +59,7 @@ export const sessionsApi = {
       null,
       { params: { title } }
     )
-    return response
+    return response.data
   },
 }
 
@@ -69,7 +69,7 @@ export const memoryApi = {
     const response = await api.get<MemoriesResponse>('/api/v1/memory', {
       params: { user_id: userId, query },
     })
-    return response
+    return response.data
   },
 
   // 保存记忆
@@ -83,7 +83,7 @@ export const memoryApi = {
       memory_id: string
       message: string
     }>('/api/v1/memory', request)
-    return response
+    return response.data
   },
 
   // 删除记忆
@@ -91,6 +91,6 @@ export const memoryApi = {
     const response = await api.delete<{ status: string; message: string }>(
       `/api/v1/memory/${memoryId}`
     )
-    return response
+    return response.data
   },
 }
