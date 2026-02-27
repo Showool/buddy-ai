@@ -2,6 +2,12 @@
 
 基于 LangGraph 和 RAG 的中文智能问答系统，支持向量数据库检索、网络搜索和长期记忆功能。
 
+## 界面预览
+
+![界面截图1](docs/chat-interface-1.png)
+
+![界面截图2](docs/chat-interface-2.png)
+
 ## 项目架构
 
 - **后端**: FastAPI + LangGraph + Chroma Vector DB
