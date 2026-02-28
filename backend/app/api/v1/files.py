@@ -46,20 +46,25 @@ def validate_file(filename: str, size: int):
         )
 
 
-def get_chroma_collection():
-    """获取ChromaDB集合"""
+def get_vector_collection():
+    """获取向量数据库集合（Chroma 或 PGVector）"""
     try:
-        from langchain_chroma import Chroma
-        from app.retriever.embeddings_model import get_embeddings_model
+        from app.config import settings
 
-        vectordb = Chroma(
-            persist_directory=settings.CHROMA_PERSIST_DIR,
-            embedding_function=get_embeddings_model(),
-            collection_name=settings.CHROMA_COLLECTION_NAME
-        )
-        return vectordb
+        if settings.VECTOR_DB_TYPE == "postgresql":
+            from app.retriever.pgvector_store import get_pgvector_store
+            return get_pgvector_store()
+        else:
+            from langchain_chroma import Chroma
+            from app.retriever.embeddings_model import get_embeddings_model
+
+            return Chroma(
+                persist_directory=settings.CHROMA_PERSIST_DIR,
+                embedding_function=get_embeddings_model(),
+                collection_name=settings.CHROMA_COLLECTION_NAME
+            )
     except Exception as e:
-        logger.error(f"获取ChromaDB集合失败: {e}")
+        logger.error(f"获取向量数据库集合失败: {e}")
         return None
 
 
@@ -180,11 +185,11 @@ async def list_files(
                 }
 
     # 从ChromaDB获取已向量化文件的信息
-    chroma_collection = get_chroma_collection()
-    if chroma_collection:
+    vector_collection = get_vector_collection()
+    if vector_collection:
         try:
             # 获取所有文档的元数据
-            all_docs = chroma_collection.get(include=["metadatas"])
+            all_docs = vector_collection.get(include=["metadatas"])
             if all_docs and all_docs.get("metadatas"):
                 # 收集已向量化文件的信息
                 vectorized_files = {}
@@ -258,12 +263,12 @@ async def delete_file(
                 detail=f"文件删除失败: {str(e)}"
             )
 
-    # 2. 从ChromaDB删除相关向量数据
-    chroma_collection = get_chroma_collection()
-    if chroma_collection:
+    # 2. 从向量数据库删除相关向量数据
+    vector_collection = get_vector_collection()
+    if vector_collection:
         try:
             # 获取所有文档
-            all_docs = chroma_collection.get(include=["metadatas"])
+            all_docs = vector_collection.get(include=["metadatas"])
             if all_docs and all_docs.get("metadatas"):
                 # 找到该文件的所有文档ID
                 doc_ids_to_delete = []
@@ -274,12 +279,12 @@ async def delete_file(
 
                 # 删除这些文档
                 if doc_ids_to_delete:
-                    chroma_collection.delete(ids=doc_ids_to_delete)
+                    vector_collection.delete(ids=doc_ids_to_delete)
                     deleted_from_db = True
-                    logger.info(f"从ChromaDB删除了 {len(doc_ids_to_delete)} 个文档片段")
+                    logger.info(f"从向量数据库删除了 {len(doc_ids_to_delete)} 个文档片段")
 
         except Exception as e:
-            logger.error(f"从ChromaDB删除文件失败: {e}")
+            logger.error(f"从向量数据库删除文件失败: {e}")
             # 数据库删除失败不影响整体流程，继续
 
     # 检查是否有文件被删除
@@ -323,11 +328,11 @@ async def get_file_info(
             }
             break
 
-    # 从ChromaDB获取更详细的信息
-    chroma_collection = get_chroma_collection()
-    if chroma_collection:
+    # 从向量数据库获取更详细的信息
+    vector_collection = get_vector_collection()
+    if vector_collection:
         try:
-            all_docs = chroma_collection.get(include=["metadatas"])
+            all_docs = vector_collection.get(include=["metadatas"])
             if all_docs and all_docs.get("metadatas"):
                 for metadata in all_docs["metadatas"]:
                     if metadata.get("file_id") == file_id:
@@ -347,7 +352,7 @@ async def get_file_info(
                         }
                         break
         except Exception as e:
-            logger.error(f"从ChromaDB获取文件信息失败: {e}")
+            logger.error(f"从向量数据库获取文件信息失败: {e}")
 
     if not file_info:
         raise HTTPException(

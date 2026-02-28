@@ -6,7 +6,7 @@ from typing import Dict, List
 from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredMarkdownLoader, Docx2txtLoader, TextLoader, CSVLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from .embeddings_model import get_embeddings_model
 
@@ -96,15 +96,25 @@ def vectorize_uploaded_files(file_paths: List[str]) -> Dict[str, any]:
 
     # 创建或更新向量数据库
     try:
-        # 使用collection_name参数
-        vectordb = Chroma.from_documents(
-            documents=split_docs,
-            embedding=get_embeddings_model(),
-            persist_directory=os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
-            collection_name=os.getenv("CHROMA_COLLECTION_NAME", "buddy_ai_knowledge")
-        )
-        vectordb.persist()
-        print(f"成功向量化 {len(split_docs)} 个文档片段")
+        # 根据配置选择向量数据库类型
+        if os.getenv("VECTOR_DB_TYPE", "chroma") == "postgresql":
+            from app.retriever.pgvector_store import get_pgvector_store
+
+            # 使用 PGVector
+            vectordb = get_pgvector_store()
+            vectordb.add_documents(split_docs)
+            print(f"成功向量化 {len(split_docs)} 个文档片段 (PostgreSQL)")
+        else:
+            # 使用 Chroma
+            vectordb = Chroma.from_documents(
+                documents=split_docs,
+                embedding=get_embeddings_model(),
+                persist_directory=os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
+                collection_name=os.getenv("CHROMA_COLLECTION_NAME", "buddy_ai_knowledge")
+            )
+            vectordb.persist()
+            print(f"成功向量化 {len(split_docs)} 个文档片段 (Chroma)")
+
         return {
             "success": True,
             "chunk_count": len(split_docs),
