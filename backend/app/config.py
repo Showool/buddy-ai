@@ -37,8 +37,10 @@ class Settings(BaseSettings):
     POSTGRESQL_URL: str = "postgresql://user:pass@localhost:5432/buddyai"
 
     # ========== 向量数据库 ==========
+    VECTOR_DB_TYPE: str = "chroma"  # chroma 或 postgresql
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     CHROMA_COLLECTION_NAME: str = "buddy_ai_knowledge"
+    PGVECTOR_COLLECTION_NAME: str = "buddy_ai_knowledge"
 
     # ========== 文件上传配置 ==========
     UPLOAD_DIR: str = "./uploads"
@@ -101,7 +103,10 @@ settings = Settings()
 
 # 确保必要的目录存在
 settings.get_upload_path().mkdir(parents=True, exist_ok=True)
-settings.get_chroma_path().mkdir(parents=True, exist_ok=True)
+
+# 只有在使用 Chroma 时才创建 Chroma 目录
+if settings.VECTOR_DB_TYPE == "chroma":
+    settings.get_chroma_path().mkdir(parents=True, exist_ok=True)
 
 
 # 根据环境覆盖配置

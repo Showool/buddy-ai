@@ -10,12 +10,13 @@
 
 ## 项目架构
 
-- **后端**: FastAPI + LangGraph + Chroma Vector DB
+- **后端**: FastAPI + LangGraph
 - **前端**: Vue3 + TypeScript + Pinia
 - **LLM**: 阿里云 DashScope (Qwen 模型)
-- **向量库**: Chroma
+- **向量库**: Chroma / PostgreSQL+pgvector
 - **记忆**: PostgreSQL
 - **会话**: Redis
+- **包管理**: uv
 
 ## 功能特性
 
@@ -31,8 +32,9 @@
 
 ### 环境要求
 
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
+- uv (Python 包管理器)
 - Redis
 - PostgreSQL
 - 阿里云 DashScope API Key
@@ -46,13 +48,20 @@ git clone https://github.com/your-repo/buddy-ai.git
 cd buddy-ai
 ```
 
-2. 安装后端依赖
+2. 安装 uv（如果尚未安装）
 ```bash
-cd backend
-pip install -r requirements.txt
+pip install uv
 ```
 
-3. 安装前端依赖
+3. 安装后端依赖
+```bash
+cd backend
+uv pip install -r requirements.txt
+# 或使用 pyproject.toml
+uv add -e .
+```
+
+4. 安装前端依赖
 ```bash
 cd ../frontend
 npm install
@@ -71,29 +80,37 @@ cp .env.example .env
 DASHSCOPE_API_KEY=your_dashscope_api_key
 TAVILY_API_KEY=your_tavily_api_key
 REDIS_URL=redis://localhost:6379/0
-POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddyai
+POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddy-ai
+
+# 向量数据库类型: chroma 或 postgresql
+VECTOR_DB_TYPE=chroma
+CHROMA_PERSIST_DIR=./chroma_db
+```
+
+如果使用 PostgreSQL 作为向量数据库，需要：
+```env
+VECTOR_DB_TYPE=postgresql
+```
+
+并在 PostgreSQL 数据库中安装 pgvector 扩展：
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
 ### 运行
-
-#### 使用 Docker Compose (推荐)
-
-```bash
-docker-compose up -d
-```
 
 #### 手动运行
 
 1. 启动后端
 ```bash
 cd backend
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 2. 启动前端
 ```bash
 cd frontend
-npx vite
+npm run dev
 ```
 
 ### 访问
@@ -108,23 +125,46 @@ npx vite
 buddy-ai/
 ├── backend/                 # FastAPI 后端
 │   ├── app/
+│   │   ├── main.py         # FastAPI 应用入口
+│   │   ├── config.py       # 配置管理
 │   │   ├── api/v1/         # API 路由
+│   │   │   ├── chat.py     # WebSocket 聊天
+│   │   │   ├── files.py    # 文件上传
+│   │   │   ├── sessions.py # 会话管理
+│   │   │   └── memory.py   # 记忆管理
 │   │   ├── agent/          # LangGraph Agent
+│   │   │   ├── graph.py    # Agent 工作流图
+│   │   │   ├── node.py     # Agent 节点
+│   │   │   ├── state.py    # Agent 状态
+│   │   │   └── create_agent.py
 │   │   ├── tools/          # 工具
-│   │   ├── memory/         # 记忆
-│   │   ├── retriever/      # 检索
+│   │   │   ├── system_tool.py    # 系统工具
+│   │   │   ├── user_tool.py      # 用户工具
+│   │   │   └── web_search_tool.py # 搜索工具
+│   │   ├── retriever/      # 检索模块
+│   │   │   ├── vector_store.py   # 向量存储
+│   │   │   ├── pgvector_store.py # PostgreSQL 向量存储
+│   │   │   ├── get_retriever.py  # 检索器
+│   │   │   ├── vectorize_files.py # 文件向量化
+│   │   │   └── embeddings_model.py # 嵌入模型
+│   │   ├── memory/         # 记忆管理
+│   │   ├── llm/            # LLM 工厂
+│   │   ├── prompt/         # 提示词
 │   │   └── models/         # Pydantic 模型
 │   ├── requirements.txt
-│   └── .env.example
+│   ├── pyproject.toml
+│   └── .env
 ├── frontend/               # Vue3 前端
 │   ├── src/
+│   │   ├── main.ts         # 入口文件
+│   │   ├── App.vue         # 根组件
 │   │   ├── components/     # 组件
 │   │   ├── views/          # 页面
 │   │   ├── stores/         # Pinia 状态
 │   │   ├── api/            # API 客户端
-│   │   └── composables/    # 组合式函数
+│   │   ├── composables/    # 组合式函数
+│   │   └── router/         # 路由
 │   └── package.json
-├── docker-compose.yml
 └── README.md
 ```
 
@@ -135,7 +175,7 @@ buddy-ai/
 ### WebSocket 聊天
 
 ```
-ws://localhost:8000/ws/chat/{user_id}
+ws://localhost:8000/api/v1/chat/ws/{user_id}
 ```
 
 发送消息:
@@ -164,10 +204,12 @@ ws://localhost:8000/ws/chat/{user_id}
 
 ```bash
 cd backend
-# 添加新依赖
-pip install package_name
-# 更新 requirements.txt
-pip freeze > requirements.txt
+
+# 添加新依赖到 pyproject.toml
+uv add package_name
+
+# 或更新 requirements.txt 后安装
+uv pip install -r requirements.txt
 ```
 
 ### 前端开发
@@ -180,6 +222,27 @@ npm install package_name
 npm run dev
 # 构建
 npm run build
+```
+
+## 向量数据库配置
+
+### Chroma（默认）
+
+```env
+VECTOR_DB_TYPE=chroma
+CHROMA_PERSIST_DIR=./chroma_db
+```
+
+### PostgreSQL+pgvector
+
+```env
+VECTOR_DB_TYPE=postgresql
+POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddy-ai
+```
+
+确保 PostgreSQL 数据库安装了 pgvector 扩展：
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
 ## 许可证
