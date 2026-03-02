@@ -55,41 +55,6 @@
           </el-sub-menu>
         </template>
 
-        <!-- 知识库文件 -->
-        <el-sub-menu v-if="knowledgeFiles.length > 0" index="files">
-          <template #title>
-            <el-icon><Document /></el-icon>
-            <span>知识库文件</span>
-            <el-tag size="small" type="info" class="file-count">
-              {{ knowledgeFiles.length }}
-            </el-tag>
-          </template>
-          <div class="files-list">
-            <div
-              v-for="file in knowledgeFiles"
-              :key="file.id"
-              class="file-item"
-            >
-              <span class="file-icon">{{ getFileIcon(file.filename) }}</span>
-              <span class="file-name" :title="file.filename">{{ file.filename }}</span>
-              <el-tag
-                size="small"
-                :type="getFileStatusTagType(file.status)"
-              >
-                {{ getFileStatus(file.status).text }}
-              </el-tag>
-              <el-button
-                type="danger"
-                size="small"
-                text
-                :icon="Close"
-                class="file-delete"
-                @click="handleDeleteFile(file.id)"
-              />
-            </div>
-          </div>
-        </el-sub-menu>
-
         <!-- 新建会话 -->
         <el-menu-item index="new-session" @click="handleNewSession">
           <el-icon><Plus /></el-icon>
@@ -123,19 +88,108 @@
             </div>
           </div>
         </el-sub-menu>
+
+        <!-- 知识库文件 -->
+        <el-sub-menu index="files">
+          <template #title>
+            <el-icon><Document /></el-icon>
+            <span>知识库文件</span>
+            <el-tag size="small" type="info" class="file-count">
+              {{ knowledgeFiles.length }}
+            </el-tag>
+          </template>
+          <!-- 上传按钮 -->
+          <div class="upload-section">
+            <el-button
+              type="primary"
+              size="small"
+              :icon="Upload"
+              @click="handleShowFileUpload"
+              class="upload-btn"
+            >
+              上传文件
+            </el-button>
+          </div>
+          <!-- 文件列表 -->
+          <div v-if="knowledgeFiles.length > 0" class="files-list">
+            <div
+              v-for="file in knowledgeFiles"
+              :key="file.id"
+              class="file-item"
+            >
+              <span class="file-icon">{{ getFileIcon(file.filename) }}</span>
+              <span class="file-name" :title="file.filename">{{ file.filename }}</span>
+
+              <!-- 向量化中显示进度条 -->
+              <div v-if="file.status === 'vectorizing'" class="file-progress">
+                <span class="progress-text">{{ getProgressPercent(file.id) }}%</span>
+                <el-progress
+                  :percentage="getProgressPercent(file.id)"
+                  :stroke-width="4"
+                  :show-text="false"
+                  color="#ff9a56"
+                />
+              </div>
+
+              <!-- 其他状态显示标签 -->
+              <div v-else class="file-status">
+                <!-- 已向量化/已完成显示默认标签 -->
+                <el-tag
+                  v-if="file.status === 'vectorized'"
+                  size="small"
+                  type="success"
+                  class="status-tag"
+                >
+                  已上传
+                </el-tag>
+                <!-- 失败显示错误标签 -->
+                <el-tag
+                  v-else-if="file.status === 'failed'"
+                  size="small"
+                  type="danger"
+                  class="status-tag"
+                >
+                  失败
+                </el-tag>
+                <!-- 已上传显示默认标签 -->
+                <el-tag
+                  v-else
+                  size="small"
+                  type="info"
+                  class="status-tag"
+                >
+                  已上传
+                </el-tag>
+              </div>
+
+              <el-button
+                type="danger"
+                size="small"
+                text
+                :icon="Close"
+                class="file-delete"
+                @click="handleDeleteFile(file.id)"
+              />
+            </div>
+          </div>
+          <div v-else class="empty-files">
+            <el-icon><Document /></el-icon>
+            <span>暂无文件，点击上传按钮添加</span>
+          </div>
+        </el-sub-menu>
       </el-menu>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 import { useTheme } from '@/composables/useTheme'
-import { filesApi } from '@/api/files'
-import type { Session, UploadedFile } from '@/types'
+import { filesApi, type VectorizationTaskStatus, type FileUploadResponse } from '@/api/files'
+import type { Session } from '@/types'
 import IconBuddy from '@/components/icons/IconBuddy.vue'
 import {
   Expand,
@@ -146,7 +200,8 @@ import {
   Document,
   Setting,
   Sunny,
-  Moon
+  Moon,
+  Upload
 } from '@element-plus/icons-vue'
 
 const emit = defineEmits<{
@@ -167,8 +222,12 @@ const userId = computed({
 })
 
 const collapsed = computed(() => userStore.sidebarCollapsed)
-const knowledgeFiles = ref<UploadedFile[]>([])
+const knowledgeFiles = ref<FileUploadResponse[]>([])
 const defaultActive = ref('')
+
+// 向量化进度跟踪
+const fileProgressMap = ref<Map<string, VectorizationTaskStatus>>(new Map())
+let progressPollInterval: number | null = null
 
 // 监听当前会话变化，更新菜单激活状态
 watch(currentSession, (session) => {
@@ -177,13 +236,91 @@ watch(currentSession, (session) => {
   }
 }, { immediate: true })
 
+// 监听用户ID变化，重新加载文件列表
+watch(userId, () => {
+  loadKnowledgeFiles()
+})
+
 // 加载知识库文件列表
 async function loadKnowledgeFiles() {
   try {
-    const response = await filesApi.list()
+    const response = await filesApi.list(userId.value)
     knowledgeFiles.value = response.files
+
+    // 检查是否有向量化中的文件，启动轮询
+    const vectorizingFiles = response.files.filter(f => f.status === 'vectorizing')
+    if (vectorizingFiles.length > 0) {
+      startProgressPolling()
+    } else {
+      // 没有向量化中的文件，停止轮询
+      stopProgressPolling()
+    }
   } catch (error) {
     console.error('加载文件列表失败:', error)
+  }
+}
+
+// 启动向量化进度轮询
+function startProgressPolling() {
+  // 清除现有轮询
+  stopProgressPolling()
+
+  // 每秒检查一次进度
+  progressPollInterval = window.setInterval(async () => {
+    // 获取当前正在向量化的文件ID列表
+    const vectorizingFileIds = knowledgeFiles.value
+      .filter(f => f.status === 'vectorizing')
+      .map(f => f.id)
+
+    if (vectorizingFileIds.length === 0) {
+      stopProgressPolling()
+      return
+    }
+
+    // 轮询每个文件的进度
+    for (const fileId of vectorizingFileIds) {
+      try {
+        const progress = await filesApi.getVectorizationProgress(fileId)
+        fileProgressMap.value.set(fileId, progress)
+
+        // 更新文件状态
+        if (progress.status === 'completed') {
+          // 更新文件列表
+          await loadKnowledgeFiles()
+          fileProgressMap.value.delete(fileId)
+        } else if (progress.status === 'failed') {
+          // 更新文件状态为失败
+          const fileIndex = knowledgeFiles.value.findIndex(f => f.id === fileId)
+          if (fileIndex !== -1) {
+            knowledgeFiles.value[fileIndex] = {
+              ...knowledgeFiles.value[fileIndex],
+              status: 'failed'
+            }
+          }
+          fileProgressMap.value.delete(fileId)
+        } else {
+          // 更新进度（通过重新获取文件列表来刷新）
+          const fileIndex = knowledgeFiles.value.findIndex(f => f.id === fileId)
+          if (fileIndex !== -1) {
+            // 只更新进度，不需要刷新整个列表
+            knowledgeFiles.value[fileIndex] = {
+              ...knowledgeFiles.value[fileIndex],
+              status: 'vectorizing'
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`获取文件 ${fileId} 进度失败:`, error)
+      }
+    }
+  }, 1000)
+}
+
+// 停止进度轮询
+function stopProgressPolling() {
+  if (progressPollInterval) {
+    clearInterval(progressPollInterval)
+    progressPollInterval = null
   }
 }
 
@@ -192,6 +329,10 @@ onMounted(() => {
   if (currentSession.value) {
     defaultActive.value = `session-${currentSession.value.thread_id}`
   }
+})
+
+onUnmounted(() => {
+  stopProgressPolling()
 })
 
 function handleMenuSelect(index: string) {
@@ -228,13 +369,17 @@ function handleDeleteSession(threadId: string) {
 async function handleDeleteFile(fileId: string) {
   if (confirm('确定要删除这个文件吗？')) {
     try {
-      await filesApi.delete(fileId)
+      await filesApi.delete(fileId, userId.value)
       knowledgeFiles.value = knowledgeFiles.value.filter(f => f.id !== fileId)
     } catch (error) {
       console.error('删除文件失败:', error)
       alert('删除文件失败')
     }
   }
+}
+
+function handleShowFileUpload() {
+  emit('showFileUpload')
 }
 
 function handleUserIdChange() {
@@ -259,15 +404,21 @@ function formatTime(timestamp: string): string {
   return date.toLocaleDateString()
 }
 
-function getFileStatus(status: string): { text: string, class: string } {
-  switch (status) {
+function getFileStatus(file: UploadedFile): { text: string, class: string } {
+  switch (file.status) {
     case 'vectorized':
       return { text: '已向量化', class: 'status-vectorized' }
     case 'failed':
       return { text: '失败', class: 'status-failed' }
+    case 'vectorizing':
+      return { text: '向量化中', class: 'status-vectorizing' }
     default:
       return { text: '已上传', class: 'status-uploaded' }
   }
+}
+
+function getFileStatusText(file: UploadedFile): string {
+  return getFileStatus(file).text
 }
 
 function getFileStatusTagType(status: string): '' | 'success' | 'danger' | 'info' | 'warning' {
@@ -276,9 +427,16 @@ function getFileStatusTagType(status: string): '' | 'success' | 'danger' | 'info
       return 'success'
     case 'failed':
       return 'danger'
+    case 'vectorizing':
+      return 'warning'
     default:
       return 'info'
   }
+}
+
+function getProgressPercent(fileId: string): number {
+  const progress = fileProgressMap.value.get(fileId)
+  return progress?.progress || 0
 }
 
 function getFileIcon(filename: string): string {
@@ -292,6 +450,11 @@ function getFileIcon(filename: string): string {
     default: return '📄'
   }
 }
+
+// 暴露方法供父组件调用
+defineExpose({
+  refreshFiles: loadKnowledgeFiles
+})
 </script>
 
 <style scoped>
@@ -425,9 +588,36 @@ function getFileIcon(filename: string): string {
   margin-left: 8px;
 }
 
+/* 上传区域 */
+.upload-section {
+  padding: 12px 16px 8px 48px;
+}
+
+.upload-btn {
+  width: 100%;
+}
+
 /* 文件列表 */
 .files-list {
   padding: 8px 0;
+}
+
+.empty-files {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px;
+  color: var(--el-text-color-tertiary);
+  text-align: center;
+}
+
+.empty-files .el-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.empty-files span {
+  font-size: 12px;
 }
 
 .file-item {
@@ -454,6 +644,33 @@ function getFileIcon(filename: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-progress {
+  flex-shrink: 0;
+  width: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.progress-text {
+  font-size: 11px;
+  color: #ff9a56;
+  font-weight: 500;
+}
+
+.file-progress :deep(.el-progress-bar__outer) {
+  background-color: var(--el-fill-color-light);
+}
+
+.file-status {
+  flex-shrink: 0;
+}
+
+.status-tag {
+  min-width: 60px;
 }
 
 .file-delete {
@@ -538,7 +755,9 @@ function getFileIcon(filename: string): string {
 .sidebar-collapsed .file-item,
 .sidebar-collapsed .file-count,
 .sidebar-collapsed .settings-content,
-.sidebar-collapsed .session-meta {
+.sidebar-collapsed .session-meta,
+.sidebar-collapsed .file-progress,
+.sidebar-collapsed .file-status {
   display: none;
 }
 

@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     VECTOR_DB_TYPE: str = "chroma"  # chroma 或 postgresql
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     CHROMA_COLLECTION_NAME: str = "buddy_ai_knowledge"
-    PGVECTOR_COLLECTION_NAME: str = "buddy_ai_knowledge"
+    PGVECTOR_COLLECTION_NAME: str = "buddy_ai_docs"  # 统一 Collection 名称
 
     # ========== 文件上传配置 ==========
     UPLOAD_DIR: str = "./uploads"

@@ -43,9 +43,13 @@ export interface UploadedFile {
   id: string
   filename: string
   size: number
+  file_size: number
+  file_type: string
   status: string
   vectorized: boolean
   upload_time: string
+  task_id?: string
+  chunk_count?: number
 }
 
 // WebSocket 消息类型

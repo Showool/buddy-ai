@@ -8,33 +8,61 @@ Buddy-AI is a Chinese-language intelligent Q&A system built with LangGraph, impl
 
 1. **Backend API** - FastAPI with LangGraph agent
 2. **Frontend UI** - Vue3 + TypeScript + Pinia
-3. **Debug UI** - Streamlit debugging interface
 
 ## Common Commands
 
 ### Backend Development (FastAPI)
-- Install dependencies: `pip install -r requirements.txt`
-- Start backend server: `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-- Or use startup scripts: `cd backend && start.bat` (Windows) or `./start.sh` (Linux/Mac)
-- Health check: `curl http://localhost:8000/health`
-- API docs (DEBUG mode): http://localhost:8000/docs
+
+**Package Management (pip + conda)**:
+```bash
+cd backend
+
+# Make sure conda environment is activated
+conda activate buddy-ai
+
+# Install dependencies from requirements.txt
+pip install -r requirements.txt
+
+# Install new dependency
+pip install package_name
+
+# Check installed packages
+pip list
+```
+
+**Running the Server**:
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Health Check**: `curl http://localhost:8000/health`
+
+**API Docs**: http://localhost:8000/docs (DEBUG mode only)
 
 ### Frontend Development (Vue3)
-- Install dependencies: `cd frontend && npm install`
-- Start dev server: `npm run dev` (runs on http://localhost:3000)
-- Build for production: `npm run build`
-- Lint: `npm run lint`
-- Format: `npm run format`
 
-### Streamlit Debug Interface
-- Run: `streamlit run streamlit_rag_agent.py`
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start dev server (runs on http://localhost:3000)
+npm run dev
+
+# Build for production
+npm run build
+```
 
 ### Configuration
-Copy `.env.example` to `.env` (in root or backend directory) and configure:
+
+Create or edit `backend/.env`:
 - `DASHSCOPE_API_KEY` - Aliyun DashScope API key (for Qwen LLM and embeddings)
 - `TAVILY_API_KEY` - Tavily search API key
-- `REDIS_URL` - Redis connection string for checkpointing (optional)
-- `POSTGRESQL_URL` - PostgreSQL connection string for memory storage (optional)
+- `REDIS_URL` - Redis connection string for checkpointing
+- `POSTGRESQL_URL` - PostgreSQL connection string for memory and vector storage
+- `VECTOR_DB_TYPE` - `chroma` (default) or `postgresql`
 
 ## Architecture
 
@@ -77,7 +105,9 @@ Uses Pydantic Settings for environment-based configuration with support for deve
 - **LLM Factory** ([backend/app/llm/llm_factory.py](backend/app/llm/llm_factory.py)): Uses Qwen models via DashScope OpenAI-compatible API
 - **Embeddings** ([backend/app/retriever/embeddings_model.py](backend/app/retriever/embeddings_model.py)): DashScope text embeddings for vectorization
 - **Prompts** ([backend/app/prompt/prompt.py](backend/app/prompt/prompt.py)): System prompts for various agent operations
-- **Retriever** ([backend/app/retriever/get_retriever.py](backend/app/retriever/get_retriever.py)): Chroma vector database setup
+- **Vector Store** ([backend/app/retriever/vector_store.py](backend/app/retriever/vector_store.py)): Abstraction layer that selects Chroma or PostgreSQL+pgvector based on `VECTOR_DB_TYPE` config
+- **PGVector Store** ([backend/app/retriever/pgvector_store.py](backend/app/retriever/pgvector_store.py)): PostgreSQL vector storage implementation
+- **Retriever** ([backend/app/retriever/get_retriever.py](backend/app/retriever/get_retriever.py)): Retrieval setup combining vector search and web search
 - **Memory** ([backend/app/memory/memory_factory.py](backend/app/memory/memory_factory.py)): PostgreSQL memory store
 
 ### Frontend (Vue3 + TypeScript)
@@ -95,22 +125,21 @@ The frontend is a Vue3 SPA with TypeScript, using Vite as the build tool.
 - **WebSocket**: [frontend/src/composables/useWebSocket.ts](frontend/src/composables/useWebSocket.ts) - Real-time chat connection to backend
 - **REST API**: [frontend/src/api/](frontend/src/api/) - File upload, session, and memory operations via Axios
 
-**Components** ([frontend/src/components/](frontend/src/components/)):
-- `ChatMessage.vue` - Message display with markdown rendering
-- `ChatInput.vue` - Input field with file attachment
-- `Sidebar.vue` - Session list and navigation
-- `DebugPanel.vue` - Debug information display
-- `FileUpload.vue` - File upload interface
+### Vector Database Configuration
 
-**Views** ([frontend/src/views/](frontend/src/views/)):
-- `ChatView.vue` - Main chat interface
+**Chroma (default)**:
+- Stores vectors in local directory specified by `CHROMA_PERSIST_DIR` config (default: `./chroma_db`)
+- No additional database setup required
 
-**Router** ([frontend/src/router/index.ts](frontend/src/router/index.ts)): Vue Router configuration for navigation.
+**PostgreSQL+pgvector**:
+- Set `VECTOR_DB_TYPE=postgresql` in `.env`
+- Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
+- Uses the same PostgreSQL connection as memory storage
 
 ### Retrieval Strategy
 
 Dual retrieval is implemented:
-- Vector retrieval from Chroma database with DashScope embeddings (text-embedding-v4)
+- Vector retrieval from configured vector database (Chroma or PostgreSQL) with DashScope embeddings
 - Web search via Tavily API (max 3 results)
 - Results are combined with knowledge base having priority
 
@@ -124,55 +153,24 @@ Dual retrieval is implemented:
 
 Supported formats: PDF, DOCX, TXT, MD, CSV (max 5MB per file)
 - Files uploaded via backend API and vectorized
-- Stored persistently in Chroma vector DB at path specified by `CHROMA_PERSIST_DIR`
+- Stored persistently in configured vector database
 
 ## Important Notes
 
+- Python 3.11+ required
 - The system is designed for Chinese-language Q&A
 - Maximum 3 tool calls per query
 - When modifying the agent workflow, maintain the conditional edges structure in [backend/app/agent/graph.py](backend/app/agent/graph.py)
 - Tool configuration can be adjusted by modifying the tools list in agent configuration
 - WebSocket connections require user_id and optionally thread_id for session management
-- The Streamlit debug interface ([streamlit_rag_agent.py](streamlit_rag_agent.py)) provides a separate way to test the agent without the full backend/frontend stack
-
-## Project Structure
-
-```
-buddy-ai/
-├── backend/                 # FastAPI Backend
-│   ├── app/
-│   │   ├── main.py         # FastAPI app entry point
-│   │   ├── config.py       # Configuration
-│   │   ├── api/v1/         # API routes
-│   │   ├── agent/          # LangGraph agent
-│   │   ├── tools/          # Agent tools
-│   │   ├── retriever/      # Vector DB & retrieval
-│   │   ├── llm/            # LLM factory
-│   │   ├── memory/         # Memory management
-│   │   └── models/         # Pydantic models
-│   ├── requirements.txt
-│   ├── start.bat           # Windows startup script
-│   └── start.sh            # Linux/Mac startup script
-├── frontend/               # Vue3 Frontend
-│   ├── src/
-│   │   ├── main.ts         # Entry point
-│   │   ├── App.vue         # Root component
-│   │   ├── components/     # Vue components
-│   │   ├── views/          # Page views
-│   │   ├── stores/         # Pinia stores
-│   │   ├── api/            # API clients
-│   │   ├── composables/    # Vue composables
-│   │   └── router/         # Vue Router
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tsconfig.json
-├── streamlit_rag_agent.py  # Debug interface
-├── requirements.txt        # Dependencies
-└── .env.example           # Environment template
-```
+- Vector store path uses `settings.CHROMA_PERSIST_DIR` config (see [vector_store.py](backend/app/retriever/vector_store.py))
 
 ## Dependencies
 
-**Important Version Constraints**:
+**Backend**:
+- `pyproject.toml` - Main dependency specification
+- `requirements.txt` - Simplified list for direct installation
+
+**Version Constraints**:
 - `langgraph-checkpoint==3.0.1` (must be <4.0.0 for compatibility with langgraph-checkpoint-redis)
 - `fastapi==0.109.0` with `starlette<0.36.0`

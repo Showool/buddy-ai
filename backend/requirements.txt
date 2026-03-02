@@ -23,6 +23,7 @@ pgvector==0.3.6
 # ========== LangGraph ==========
 langgraph==1.0.7
 langgraph-checkpoint==3.0.1
+langgraph-checkpoint-postgres==3.0.1
 langsmith
 
 # ========== Database ==========

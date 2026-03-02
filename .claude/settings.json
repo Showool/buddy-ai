@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from langgraph.store.memory import InMemoryStore; print\\(''InMemoryStore found''\\)\")",
+      "Bash(python -c \"from langgraph.checkpoint.postgres import PostgresSaver; print\\(''PostgresSaver found''\\)\")",
+      "Bash(python -c \"import langgraph.checkpoint.postgres; print\\(''langgraph.checkpoint.postgres found''\\)\")"
+    ]
+  }
+}

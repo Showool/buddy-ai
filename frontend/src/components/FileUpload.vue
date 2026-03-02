@@ -31,18 +31,10 @@
             <span class="file-name">{{ file.filename }}</span>
             <el-tag
               size="small"
-              :type="getStatusTagType(file.status)"
+              :type="file.status === 'vectorized' ? 'success' : file.status === 'vectorizing' ? 'warning' : 'info'"
             >
               {{ getStatusText(file.status) }}
             </el-tag>
-            <el-button
-              v-if="file.status === 'uploaded'"
-              type="success"
-              size="small"
-              @click="handleVectorize(file.id)"
-            >
-              向量化
-            </el-button>
           </div>
         </div>
       </div>
@@ -57,8 +49,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { UploadInstance, UploadUserFile } from 'element-plus'
-import { filesApi } from '@/api/files'
-import type { UploadedFile } from '@/types'
+import { filesApi, type FileUploadResponse } from '@/api/files'
+import { useUserStore } from '@/stores/user'
 import { Upload } from '@element-plus/icons-vue'
 
 interface Props {
@@ -69,10 +61,12 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'file-uploaded', file: FileUploadResponse): void
 }>()
 
+const userStore = useUserStore()
 const uploadRef = ref<UploadInstance>()
-const uploadedFiles = ref<UploadedFile[]>([])
+const uploadedFiles = ref<FileUploadResponse[]>([])
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -81,70 +75,40 @@ const dialogVisible = computed({
   }
 })
 
+const userId = computed(() => userStore.userId)
 const acceptTypes = '.pdf,.docx,.txt,.md,.csv'
+
+function getStatusText(status: string): string {
+  switch (status) {
+    case 'vectorized':
+      return '已向量化'
+    case 'vectorizing':
+      return '向量化中'
+    case 'failed':
+      return '失败'
+    default:
+      return '已上传'
+  }
+}
 
 async function handleFileSelect(file: UploadUserFile) {
   const rawFile = file.raw
   if (rawFile) {
     try {
-      const uploaded = await filesApi.upload(rawFile)
+      const uploaded = await filesApi.upload(rawFile, userId.value)
       uploadedFiles.value.unshift(uploaded)
+      emit('file-uploaded', uploaded)
       // 清空上传组件的文件列表
       uploadRef.value?.clearFiles()
     } catch (error) {
       console.error('上传文件失败:', error)
-      // 使用 Element Plus 的消息提示会更好，但这里简单处理
       console.error('上传文件失败')
     }
   }
 }
 
-async function handleVectorize(fileId: string) {
-  try {
-    const response = await filesApi.vectorize([fileId])
-
-    if (response.status === 'success') {
-      // 更新文件状态
-      const file = uploadedFiles.value.find(f => f.id === fileId)
-      if (file) {
-        file.status = 'vectorized'
-        file.vectorized = true
-      }
-      console.log(`向量化成功！生成 ${response.chunk_count} 个文本块`)
-    } else {
-      console.error(response.message || '向量化失败')
-    }
-  } catch (error) {
-    console.error('向量化失败:', error)
-  }
-}
-
 function handleClose() {
   emit('close')
-}
-
-function getStatusText(status: string): string {
-  switch (status) {
-    case 'uploaded':
-      return '已上传'
-    case 'vectorized':
-      return '已向量化'
-    case 'failed':
-      return '失败'
-    default:
-      return status
-  }
-}
-
-function getStatusTagType(status: string): '' | 'success' | 'danger' | 'info' | 'warning' {
-  switch (status) {
-    case 'vectorized':
-      return 'success'
-    case 'failed':
-      return 'danger'
-    default:
-      return 'info'
-  }
 }
 </script>
 

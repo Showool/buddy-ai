@@ -9,6 +9,27 @@ from ..llm.llm_factory import get_llm
 from ..prompt.prompt import REWRITE_PROMPT, GENERATE_PROMPT, GRADE_PROMPT
 from ..tools import get_tools
 
+logger = __import__('logging').getLogger(__name__)
+
+
+def _calculate_query_similarity(q1: str, q2: str) -> float:
+    """简单计算查询相似度"""
+    if q1 == q2:
+        return 1.0
+
+    words1 = set(q1.split())
+    words2 = set(q2.split())
+
+    if not words1 and not words2:
+        return 1.0
+    if not words1 or not words2:
+        return 0.0
+
+    intersection = words1.intersection(words2)
+    union = words1.union(words2)
+
+    return len(intersection) / len(union) if union else 0.0
+
 
 def generate_query_or_respond(state: AgentState,
                               config: RunnableConfig,
@@ -28,9 +49,10 @@ def generate_query_or_respond(state: AgentState,
 4. save_conversation_memory 需要传入用户的问题和你的回答作为参数
 
 工具说明：
-- retrieve_memory(query, user_id): 根据查询词检索用户的历史记忆
-- save_conversation_memory(question, answer, user_id): 保存对话到长期记忆
-- retrieve_context: 从知识库检索相关信息
+- retrieve_memory(query, user_id): 根据查询词检索用户的历史记忆，user_id参数为 "{user_id}"
+- save_conversation_memory(question, answer, user_id): 保存对话到长期记忆，user_id参数为 "{user_id}"
+- retrieve_context(query, user_id): 从知识库检索相关信息，user_id参数为 "{user_id}" 用于过滤只检索该用户的文档
+- retriever_tool(query, user_id): 搜索文档信息，user_id参数为 "{user_id}" 用于过滤只检索该用户的文档
 - tavily_search: 网络搜索获取实时信息
 - get_weather_for_location: 获取天气信息
 
@@ -40,7 +62,10 @@ def generate_query_or_respond(state: AgentState,
 3. 结合记忆、知识库和网络搜索回答问题
 4. 发现重要新信息时，在回答后调用 save_conversation_memory 保存
 
-注意：不要过度使用 save_conversation_memory，只在真正需要长期保存的信息时调用。"""
+注意：
+1. 不要过度使用 save_conversation_memory，只在真正需要长期保存的信息时调用
+2. 使用 retrieve_context 和 retriever_tool 时，务必传入 user_id="{user_id}" 以确保只检索该用户的文档
+3. 所有需要 user_id 参数的工具都应该使用当前用户ID: {user_id}"""
 
     # 将记忆工具和检索工具一起绑定到模型
     # 为工具添加默认参数（包括user_id）
@@ -53,40 +78,75 @@ def generate_query_or_respond(state: AgentState,
 
 
 def rewrite_question(state: AgentState):
-    """重写原用户问题."""
+    """重写问题（防止死循环）"""
     messages = state["messages"]
     question = messages[0].content
-    
-    # 获取最后一条消息（通常是 ToolMessage）
+    loop_step = state.get("loop_step", 0)
+    query_history = state.get("query_history", [])
+
+    MAX_RETRIES = 3
+    if loop_step >= MAX_RETRIES:
+        logger.warning(f"超过最大重试次数 ({MAX_RETRIES})，停止重写")
+        return {"messages": [HumanMessage(content=question)], "loop_step": loop_step + 1}
+
+    # 检测重复查询
+    current_query_normalized = question.lower().strip()
+    for prev_query in query_history[-3:]:
+        if _calculate_query_similarity(current_query_normalized, prev_query.lower().strip()) > 0.9:
+            logger.warning("检测到重复查询，停止重写")
+            return {"messages": [HumanMessage(content=question)], "loop_step": loop_step + 1}
+
+    # 策略判断
     last_message = messages[-1]
-    
-    # 默认策略
     strategy = "优化检索"
-    
-    # 检查是否是工具调用结果
+
     if hasattr(last_message, "tool_call_id") or last_message.type == "tool":
-        # 简单判断：如果内容包含"没有找到"或内容很短，认为无效，切换到联网搜索
-        # 如果内容较长但还是被 grade_documents 拒绝了，则尝试优化检索词
         content = last_message.content
         if "没有找到" in content or len(content) < 50:
-             strategy = "联网搜索"
-        else:
-             strategy = "优化检索"
-    
+            strategy = "联网搜索"
+        elif loop_step >= 1:
+            strategy = "简化表达"
+
+    # 生成重写问题
     prompt = REWRITE_PROMPT.format(question=question, strategy=strategy)
     response = get_llm().invoke([{"role": "user", "content": prompt}])
-    loop_step = state.get("loop_step", 0)
-    return {"messages": [HumanMessage(content=response.content)], "loop_step": loop_step + 1}
+
+    rewritten_query = response.content.strip()
+
+    # 验证重写结果
+    similarity = _calculate_query_similarity(current_query_normalized, rewritten_query.lower().strip())
+    if similarity > 0.85:
+        rewritten_query = question
+
+    logger.info(f"重写问题: '{question}' -> '{rewritten_query}', 次数: {loop_step}")
+
+    return {
+        "messages": [HumanMessage(content=rewritten_query)],
+        "loop_step": loop_step + 1,
+        "query_history": query_history + [question]
+    }
 
 
 def generate_answer(state: AgentState):
-    """生成答案."""
+    """生成答案 - 使用检索到的上下文"""
     question = state["messages"][0].content
-    context = state["messages"][-1].content
+
+    # 从状态中获取检索结果
+    retrieved_docs = state.get("retrieved_documents", [])
+    metadata = state.get("retrieval_metadata")
+
+    if retrieved_docs:
+        context = "\n\n".join([
+            f"[来源: {doc.metadata.get('filename', 'unknown')}] {doc.page_content}"
+            for doc in retrieved_docs
+        ])
+        logger.info(f"生成答案: 使用 {len(retrieved_docs)} 个检索文档")
+    else:
+        context = state["messages"][-1].content
+
     prompt = GENERATE_PROMPT.format(question=question, context=context)
     response = get_llm().invoke([{"role": "user", "content": prompt}])
     return {"messages": [response]}
-
 
 
 def grade_documents(

@@ -2,58 +2,63 @@
   <div class="chat-container">
     <!-- 侧边栏 - 会话列表 -->
     <Sidebar
+      ref="sidebarRef"
       class="sidebar"
       :class="{ 'mobile-open': mobileSidebarOpen }"
+      @showFileUpload="showFileUploadModal = true"
       @toggleSidebar="toggleMobileSidebar"
     />
 
     <!-- 主聊天区域 -->
     <div class="main-chat">
-      <!-- 顶部标题栏 -->
-      <div class="chat-header">
-        <div class="header-left">
-          <el-button
-            circle
-            :icon="Menu"
-            class="menu-toggle"
-            @click="toggleMobileSidebar"
-          />
-          <div class="header-title">
-            <h1>Buddy-AI</h1>
-            <span class="header-subtitle">智能助手</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 聊天消息区域 -->
-      <div class="messages-container" ref="messagesContainer">
-        <div v-if="messages.length === 0" class="empty-state">
-          <transition name="fade">
-            <div class="empty-icon-wrapper">
-              <IconBuddy class="empty-icon" />
+      <!-- 聊天内容区域 -->
+      <div class="chat-content">
+        <!-- 顶部标题栏 -->
+        <div class="chat-header">
+          <div class="header-left">
+            <el-button
+              circle
+              :icon="Menu"
+              class="menu-toggle"
+              @click="toggleMobileSidebar"
+            />
+            <div class="header-title">
+              <h1>Buddy-AI</h1>
+              <span class="header-subtitle">智能助手</span>
             </div>
-          </transition>
-          <h2>你好！我是 Buddy-AI</h2>
-          <p>我可以帮你回答问题、检索知识库、保存记忆等</p>
-        </div>
-
-        <div v-else class="messages-list">
-          <ChatMessage
-            v-for="(msg, index) in messages"
-            :key="`${msg.role}-${index}`"
-            :message="msg"
-          />
-          <div v-if="isStreaming" class="streaming-indicator">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
           </div>
-          <div ref="messagesEndRef" class="messages-end"></div>
         </div>
-      </div>
 
-      <!-- 输入区域 -->
-      <ChatInput />
+        <!-- 聊天消息区域 -->
+        <div class="messages-container" ref="messagesContainer">
+          <div v-if="messages.length === 0" class="empty-state">
+            <transition name="fade">
+              <div class="empty-icon-wrapper">
+                <IconBuddy class="empty-icon" />
+              </div>
+            </transition>
+            <h2>你好！我是 Buddy-AI</h2>
+            <p>我可以帮你回答问题、检索知识库、保存记忆等</p>
+          </div>
+
+          <div v-else class="messages-list">
+            <ChatMessage
+              v-for="(msg, index) in messages"
+              :key="`${msg.role}-${index}`"
+              :message="msg"
+            />
+            <div v-if="isStreaming" class="streaming-indicator">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <div ref="messagesEndRef" class="messages-end"></div>
+          </div>
+        </div>
+
+        <!-- 输入区域 -->
+        <ChatInput />
+      </div>
     </div>
 
     <!-- 移动端侧边栏遮罩 -->
@@ -78,6 +83,7 @@
     <FileUpload
       :visible="showFileUploadModal"
       @close="showFileUploadModal = false"
+      @file-uploaded="handleFileUploaded"
     />
   </div>
 </template>
@@ -87,6 +93,8 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useSessionStore } from '@/stores/session'
 import { useUserStore } from '@/stores/user'
+import type { UploadedFile } from '@/types'
+import type { FileUploadResponse } from '@/api/files'
 import ChatMessage from '@/components/ChatMessage.vue'
 import ChatInput from '@/components/ChatInput.vue'
 import Sidebar from '@/components/Sidebar.vue'
@@ -106,6 +114,7 @@ const showFileUploadModal = ref(false)
 const mobileSidebarOpen = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const messagesEndRef = ref<HTMLElement>()
+const sidebarRef = ref<InstanceType<typeof Sidebar>>()
 
 const messages = computed(() => chatStore.messages)
 const isStreaming = computed(() => chatStore.isStreaming)
@@ -133,6 +142,11 @@ watch(() => isStreaming.value, (streaming) => {
 
 function toggleMobileSidebar() {
   mobileSidebarOpen.value = !mobileSidebarOpen.value
+}
+
+function handleFileUploaded(file: UploadedFile) {
+  // 通知侧边栏刷新文件列表
+  sidebarRef.value?.refreshFiles()
 }
 
 onMounted(() => {
@@ -195,13 +209,22 @@ onMounted(() => {
 .main-chat {
   flex: 1;
   display: flex;
-  flex-direction: column;
   position: relative;
   background: linear-gradient(
     to bottom,
     var(--el-bg-color-page) 0%,
     var(--el-bg-color) 100%
   );
+}
+
+/* ========================================
+   聊天内容区域
+   ======================================== */
+.chat-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
 }
 
 /* ========================================

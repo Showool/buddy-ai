@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(cp:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(python -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(python -c \"import langgraph; print\\(dir\\(langgraph\\)\\)\")",
+      "mcp__docs-langchain__SearchDocsByLangChain",
+      "WebSearch",
+      "WebFetch(domain:help.aliyun.com)"
     ]
   }
 }
