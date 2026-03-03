@@ -29,14 +29,22 @@ async def lifespan(app: FastAPI):
 
     # 启动时初始化
     try:
-        # 初始化向量数据库目录
-        from pathlib import Path
-        Path(settings.CHROMA_PERSIST_DIR).mkdir(parents=True, exist_ok=True)
-        Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"✅ Upload directory: {settings.UPLOAD_DIR}")
-        logger.info(f"✅ Chroma DB directory: {settings.CHROMA_PERSIST_DIR}")
         logger.info(f"✅ Debug mode: {settings.DEBUG}")
+
+        # 初始化向量数据库
+        if settings.VECTOR_DB_TYPE == "postgresql":
+            try:
+                from app.retriever.pgvector_store import get_pgvector_store
+                # 测试连接
+                test_store = get_pgvector_store()
+                logger.info(f"✅ PostgreSQL 向量存储连接成功")
+            except Exception as e:
+                logger.warning(f"⚠️  PostgreSQL 向量存储连接失败: {e}")
+                logger.info("💡 提示: 确保 PostgreSQL 已安装 pgvector 扩展: CREATE EXTENSION IF NOT EXISTS vector;")
+        else:
+            # 初始化 Chroma 向量数据库目录
+            Path(settings.CHROMA_PERSIST_DIR).mkdir(parents=True, exist_ok=True)
+            logger.info(f"✅ Chroma DB directory: {settings.CHROMA_PERSIST_DIR}")
 
     except Exception as e:
         logger.error(f"❌ Initialization failed: {e}")
@@ -63,6 +71,8 @@ app = FastAPI(
 allow_origins = ["*"] if settings.DEBUG else [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 
 app.add_middleware(
@@ -79,9 +89,18 @@ app.add_middleware(
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """请求验证错误处理"""
     logger.warning(f"Validation error: {exc}")
+    # 只返回可序列化的错误详情，避免包含 FormData 等对象
+    error_details = [
+        {
+            "loc": error["loc"],
+            "msg": error["msg"],
+            "type": error["type"]
+        }
+        for error in exc.errors()
+    ]
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors(), "body": exc.body},
+        content={"detail": error_details},
     )
 
 
