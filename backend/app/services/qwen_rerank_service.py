@@ -1,5 +1,5 @@
 """
-Qwen Rerank 服务
+Qwen Rerank 服务 - 同步版本
 """
 import logging
 from typing import List, Optional
@@ -22,7 +22,7 @@ class QwenRerankService:
     def __init__(self):
         self.api_key = settings.DASHSCOPE_API_KEY
 
-    async def rerank(
+    def rerank(
         self,
         query: str,
         documents: List[Document],

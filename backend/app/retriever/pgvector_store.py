@@ -9,7 +9,7 @@ from .embeddings_model import get_embeddings_model
 from ..config import settings
 
 
-def get_pgvector_store(collection_name: str = None) -> PGVector:
+def get_pgvector_store() -> PGVector:
     """
     获取 PostgreSQL 向量存储实例
 
@@ -19,16 +19,11 @@ def get_pgvector_store(collection_name: str = None) -> PGVector:
     Returns:
         PGVector 实例
     """
-    # 使用连接字符串
-    connection_string = settings.POSTGRESQL_URL
-    # 如果未指定 collection_name，使用配置中的默认值
-    if collection_name is None:
-        collection_name = settings.PGVECTOR_COLLECTION_NAME
 
     return PGVector(
         embeddings=get_embeddings_model(),
-        collection_name=collection_name,
-        connection=connection_string,
+        collection_name=settings.PGVECTOR_COLLECTION_NAME,
+        connection=settings.POSTGRESQL_URL,
         use_jsonb=True,  # 使用 JSONB 存储元数据
     )
 

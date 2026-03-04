@@ -12,8 +12,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, status, Query, F
 
 from app.config import settings
 from app.models.file import (
-    FileUploadResponse, VectorizeResponse, VectorizeRequest,
-    FileInfo, FileListResponse, DeleteFileResponse
+    FileUploadResponse, FileInfo, FileListResponse, DeleteFileResponse
 )
 from app.services.user_file_service import user_file_service
 from app.services.vectorization_service import vectorization_service
@@ -50,14 +49,14 @@ def validate_file(filename: str, file_size: Optional[int] = None):
 def get_vector_collection_metadata(user_id: str = None):
     """
     获取向量数据库中的文档元数据
-    支持PGVector和Chroma
-    新架构：每个文件一个 collection
+
+    新架构：使用单一collection，通过file_id区分文件
     """
     try:
         from app.config import settings
 
         if settings.VECTOR_DB_TYPE == "postgresql":
-            # PGVector 需要通过数据库直接查询元数据
+            # PGVector - 直接从 embedding 表查询
             import psycopg2
             from psycopg2.extras import RealDictCursor
 
@@ -66,76 +65,99 @@ def get_vector_collection_metadata(user_id: str = None):
 
             try:
                 if user_id:
-                    # 查询特定用户的 collection 元数据
+                    # 查询特定用户的文档，按file_id分组统计
                     cursor.execute("""
-                        SELECT c.name as collection_name, c.cmetadata
-                        FROM langchain_pg_collection c
-                        WHERE c.cmetadata @> %s::jsonb
-                        ORDER BY c.created_at DESC
-                    """, (f'{{"user_id": "{user_id}"}}',))
+                        SELECT
+                            e.cmetadata->>'file_id' as file_id,
+                            e.cmetadata->>'filename' as filename,
+                            e.cmetadata->>'file_type' as file_type,
+                            e.cmetadata->>'file_size' as file_size,
+                            e.cmetadata->>'upload_time' as upload_time,
+                            e.cmetadata->>'user_id' as user_id,
+                            COUNT(*) as chunk_count
+                        FROM langchain_pg_embedding e
+                        WHERE e.cmetadata->>'user_id' = %s
+                        GROUP BY e.cmetadata->>'file_id', e.cmetadata->>'filename',
+                                 e.cmetadata->>'file_type', e.cmetadata->>'file_size',
+                                 e.cmetadata->>'upload_time', e.cmetadata->>'user_id'
+                    """, (user_id,))
                 else:
-                    # 查询所有 collection
+                    # 查询所有文档
                     cursor.execute("""
-                        SELECT c.name as collection_name, c.cmetadata
-                        FROM langchain_pg_collection
-                        ORDER BY c.created_at DESC
+                        SELECT
+                            e.cmetadata->>'file_id' as file_id,
+                            e.cmetadata->>'filename' as filename,
+                            e.cmetadata->>'file_type' as file_type,
+                            e.cmetadata->>'file_size' as file_size,
+                            e.cmetadata->>'upload_time' as upload_time,
+                            e.cmetadata->>'user_id' as user_id,
+                            COUNT(*) as chunk_count
+                        FROM langchain_pg_embedding e
+                        GROUP BY e.cmetadata->>'file_id', e.cmetadata->>'filename',
+                                 e.cmetadata->>'file_type', e.cmetadata->>'file_size',
+                                 e.cmetadata->>'upload_time', e.cmetadata->>'user_id'
                     """)
 
                 rows = cursor.fetchall()
                 metadatas = []
                 for row in rows:
-                    # 获取该 collection 的文档数量
-                    collection_name = row['collection_name']
-                    cursor.execute("""
-                        SELECT COUNT(*) as count
-                        FROM langchain_pg_embedding e
-                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
-                        WHERE c.name = %s
-                    """, (collection_name,))
-                    count_result = cursor.fetchone()
-
-                    metadata = row['cmetadata'] or {}
-                    metadata['collection_name'] = collection_name
-                    metadata['chunk_count'] = count_result['count'] if count_result else 0
-                    metadatas.append(metadata)
+                    metadatas.append({
+                        "file_id": row['file_id'],
+                        "filename": row['filename'],
+                        "file_type": row['file_type'],
+                        "file_size": int(row['file_size']) if row['file_size'] else 0,
+                        "upload_time": row['upload_time'],
+                        "user_id": row['user_id'],
+                        "chunk_count": row['chunk_count']
+                    })
 
                 return metadatas
             finally:
                 cursor.close()
                 conn.close()
         else:
-            # Chroma - 需要遍历所有用户文件的 collection
-            from app.services.user_file_service import user_file_service
+            # Chroma - 从统一collection查询
+            from langchain_chroma import Chroma
+            from app.retriever.embeddings_model import get_embeddings_model
 
             if not user_id:
                 return []
 
-            # 获取用户的所有文件
+            vector_store = Chroma(
+                persist_directory=settings.CHROMA_PERSIST_DIR,
+                embedding_function=get_embeddings_model(),
+                collection_name=settings.CHROMA_COLLECTION_NAME
+            )
+
+            all_docs = vector_store.get(include=["metadatas"])
+            if not all_docs or not all_docs.get("metadatas"):
+                return []
+
+            # 按file_id分组统计
+            file_chunks = {}
+            for metadata in all_docs["metadatas"]:
+                if metadata.get("user_id") != user_id:
+                    continue
+                file_id = metadata.get("file_id")
+                if file_id:
+                    file_chunks[file_id] = file_chunks.get(file_id, 0) + 1
+
+            # 获取用户文件信息
+            from app.services.user_file_service import user_file_service
             user_files = user_file_service.list_user_files(user_id)
+
             metadatas = []
-
-            from langchain_chroma import Chroma
-
             for user_file in user_files:
-                try:
-                    vector_store = Chroma(
-                        persist_directory=settings.CHROMA_PERSIST_DIR,
-                        embedding_function=None,
-                        collection_name=user_file.original_filename
-                    )
-
-                    all_docs = vector_store.get(include=["metadatas"])
-                    if all_docs and all_docs.get("metadatas"):
-                        chunk_count = len(all_docs["metadatas"])
-                        metadatas.append({
-                            "file_id": user_file.id,
-                            "filename": user_file.original_filename,
-                            "collection_name": user_file.original_filename,
-                            "chunk_count": chunk_count,
-                            "user_id": user_id
-                        })
-                except Exception as e:
-                    logger.warning(f"获取 {user_file.original_filename} 的元数据失败: {e}")
+                chunk_count = file_chunks.get(user_file.id, 0)
+                metadatas.append({
+                    "file_id": user_file.id,
+                    "filename": user_file.original_filename,
+                    "file_type": user_file.file_type,
+                    "file_size": user_file.file_size,
+                    "upload_time": user_file.upload_time.isoformat() if user_file.upload_time else None,
+                    "user_id": user_id,
+                    "chunk_count": chunk_count
+                })
 
             return metadatas
     except Exception as e:
@@ -205,39 +227,6 @@ async def upload_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"文件保存失败: {str(e)}"
-        )
-
-
-@router.post("/files/vectorize", response_model=VectorizeResponse)
-async def vectorize_files(request: VectorizeRequest):
-    """向量化文件"""
-    from app.retriever.vectorize_files import vectorize_uploaded_files
-
-    try:
-        # 调用向量化函数，传入 user_id
-        result = vectorize_uploaded_files(request.file_ids, request.user_id)
-
-        if result.get("success"):
-            chunk_count = result.get("chunk_count", 0)
-            file_metadata = result.get("file_metadata", {})
-            logger.info(f"用户 {request.user_id} 的文件向量化成功，共 {chunk_count} 个chunk，涉及 {len(file_metadata)} 个文件")
-            return VectorizeResponse(
-                status="success",
-                chunk_count=chunk_count,
-                message=f"向量化成功，处理了 {len(file_metadata)} 个文件"
-            )
-        else:
-            return VectorizeResponse(
-                status="failed",
-                chunk_count=0,
-                message="向量化失败"
-            )
-    except Exception as e:
-        logger.error(f"向量化失败: {e}")
-        return VectorizeResponse(
-            status="failed",
-            chunk_count=0,
-            message=f"向量化失败: {str(e)}"
         )
 
 

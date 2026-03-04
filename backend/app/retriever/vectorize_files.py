@@ -68,26 +68,21 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
                 "file_size": user_file.file_size,
                 "upload_time": datetime_to_iso(user_file.upload_time) if user_file.upload_time else None,
                 "source": user_file.original_filename,
-                "user_id": user_id
+                "user_id": user_id,
+                "doc_type": "chunk"  # 添加 doc_type 用于过滤
             })
 
-        # 删除旧的向量数据（使用文件名作为 collection name）
-        delete_file_vectors(filename, user_id)
+        # 删除旧的向量数据（使用统一collection，通过file_id和user_id过滤）
+        delete_file_vectors_by_metadata(file_id, user_id)
 
-        # 添加到向量数据库（使用文件名作为 collection name）
+        # 添加到向量数据库（使用统一collection）
         if settings.VECTOR_DB_TYPE == "postgresql":
             from langchain_postgres import PGVector
 
-            # 使用文件名作为 collection name，在 cmetadata 中存储 file_id 和 user_id
-            collection_metadata = {
-                "file_id": file_id,
-                "user_id": user_id
-            }
-
+            # 使用统一 collection 名称，通过 metadata 中的 file_id 和 user_id 区分文件
             vectordb = PGVector(
                 embeddings=get_embeddings_model(),
-                collection_name=filename,  # 使用文件名
-                collection_metadata=collection_metadata,
+                collection_name=settings.PGVECTOR_COLLECTION_NAME,  # 使用统一collection
                 connection=settings.POSTGRESQL_URL,
                 use_jsonb=True,
             )
@@ -99,7 +94,7 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
                 documents=split_docs,
                 embedding=get_embeddings_model(),
                 persist_directory=os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
-                collection_name=filename,
+                collection_name=settings.CHROMA_COLLECTION_NAME,
                 metadata={"file_id": file_id, "user_id": user_id}
             )
             vectordb.persist()
@@ -122,8 +117,79 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
         }
 
 
+def delete_file_vectors_by_metadata(file_id: str, user_id: str) -> bool:
+    """
+    通过元数据删除指定文件的向量数据（使用统一collection）
+
+    Args:
+        file_id: 文件ID
+        user_id: 用户ID
+
+    Returns:
+        bool: 是否删除成功
+    """
+    try:
+        if settings.VECTOR_DB_TYPE == "postgresql":
+            from psycopg2.extras import RealDictCursor
+            import psycopg2
+
+            # 删除 embedding 数据（通过 metadata 过滤）
+            conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                DELETE FROM langchain_pg_embedding
+                WHERE collection_id = (
+                    SELECT uuid FROM langchain_pg_collection
+                    WHERE name = %s
+                )
+                AND cmetadata->>'file_id' = %s
+                AND cmetadata->>'user_id' = %s
+            """, (settings.PGVECTOR_COLLECTION_NAME, file_id, user_id))
+
+            deleted_count = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            conn.close()
+            print(f"删除文件 {file_id} 的向量数据: {deleted_count} 条记录")
+            return deleted_count > 0
+        else:
+            # Chroma 逻辑 - 需要遍历查找并删除
+            from langchain_chroma import Chroma
+
+            vector_store = Chroma(
+                persist_directory=settings.CHROMA_PERSIST_DIR,
+                embedding_function=get_embeddings_model(),
+                collection_name=settings.CHROMA_COLLECTION_NAME
+            )
+
+            # 获取所有文档
+            all_docs = vector_store.get(include=["metadatas", "ids"])
+            if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
+                # 找到该文件的所有文档ID
+                doc_ids_to_delete = []
+                for idx, metadata in enumerate(all_docs["metadatas"]):
+                    if metadata.get("file_id") == file_id and metadata.get("user_id") == user_id:
+                        doc_ids_to_delete.append(all_docs["ids"][idx])
+
+                # 删除这些文档
+                if doc_ids_to_delete:
+                    vector_store.delete(ids=doc_ids_to_delete)
+                    print(f"删除文件 {file_id} 的向量数据: {len(doc_ids_to_delete)} 条记录")
+                    return True
+
+            return False
+    except Exception as e:
+        print(f"删除向量数据失败: {e}")
+        return False
+
+
 def delete_file_vectors(filename: str, user_id: str) -> bool:
-    """删除指定文件的向量数据"""
+    """
+    删除指定文件的向量数据（废弃：使用 delete_file_vectors_by_metadata 替代）
+
+    此方法保留用于向后兼容，但推荐使用 delete_file_vectors_by_metadata
+    """
     try:
         if settings.VECTOR_DB_TYPE == "postgresql":
             from psycopg2.extras import RealDictCursor
@@ -169,142 +235,6 @@ def delete_file_vectors(filename: str, user_id: str) -> bool:
     except Exception as e:
         print(f"删除向量数据失败: {e}")
         return False
-
-
-def vectorize_uploaded_files(file_ids: List[str], user_id: Optional[str] = None) -> Dict[str, any]:
-    """
-    将上传的文件向量化并保存到向量数据库
-
-    Args:
-        file_ids: 文件ID列表
-        user_id: 用户ID（可选，用于用户级检索）
-
-    Returns:
-        dict: 包含success、chunk_count和file_metadata的字典
-    """
-    from app.services.user_file_service import user_file_service
-
-    # 加载文件
-    texts = []
-    file_metadata = {}
-    temp_file_paths = []
-
-    try:
-        for file_id in file_ids:
-            try:
-                # 从数据库获取文件信息
-                user_file = user_file_service.get_file_by_id(file_id)
-                if not user_file:
-                    print(f"文件不存在: {file_id}")
-                    continue
-
-                # 创建临时文件用于加载
-                temp_file_path = user_file_service.get_temp_file_path(file_id, user_file.file_type)
-                temp_file_paths.append(temp_file_path)
-
-                path = Path(temp_file_path)
-                file_type = user_file.file_type
-
-                # 获取加载器
-                if file_type == 'pdf':
-                    loader = PyMuPDFLoader(temp_file_path)
-                elif file_type == 'md':
-                    loader = UnstructuredMarkdownLoader(temp_file_path)
-                elif file_type == 'docx':
-                    loader = Docx2txtLoader(temp_file_path)
-                elif file_type == 'txt':
-                    loader = TextLoader(temp_file_path, encoding='utf-8')
-                elif file_type == 'csv':
-                    loader = CSVLoader(temp_file_path)
-                else:
-                    print(f"不支持的文件类型: {file_type}")
-                    continue
-
-                loaded_texts = loader.load()
-
-                # 为每个文档添加文件元数据
-                for doc in loaded_texts:
-                    doc.metadata.update({
-                        "file_id": file_id,
-                        "filename": user_file.original_filename,
-                        "file_type": user_file.file_type,
-                        "file_size": user_file.file_size,
-                        "upload_time": datetime_to_iso(user_file.upload_time) if user_file.upload_time else None,  # 转换为 ISO 格式字符串
-                        "source": user_file.original_filename,
-                        "user_id": user_id  # 添加用户ID用于过滤
-                    })
-
-                texts.extend(loaded_texts)
-
-                # 保存文件元数据
-                file_metadata[file_id] = {
-                    "file_id": file_id,
-                    "filename": user_file.original_filename,
-                    "file_type": user_file.file_type,
-                    "file_size": user_file.file_size,
-                    "upload_time": datetime_to_iso(user_file.upload_time) if user_file.upload_time else None,
-                    "chunk_count": 0  # 稍后更新
-                }
-
-                print(f"成功加载文件: {user_file.original_filename}")
-
-            except Exception as e:
-                print(f"加载文件时出错: {file_id}, 错误: {str(e)}")
-                print(traceback.format_exc())
-                continue
-
-        if not texts:
-            print("没有成功加载任何文档")
-            return {"success": False, "chunk_count": 0, "file_metadata": {}}
-
-        # 切分文档
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        split_docs = text_splitter.split_documents(texts)
-
-        # 统计每个文件的chunk数量
-        for doc in split_docs:
-            file_id = doc.metadata.get("file_id")
-            if file_id in file_metadata:
-                file_metadata[file_id]["chunk_count"] += 1
-
-        # 创建或更新向量数据库
-        try:
-            # 根据配置选择向量数据库类型
-            if settings.VECTOR_DB_TYPE == "postgresql":
-                from app.retriever.pgvector_store import get_pgvector_store
-
-                # 使用 PGVector
-                vectordb = get_pgvector_store()
-                vectordb.add_documents(split_docs)
-                print(f"成功向量化 {len(split_docs)} 个文档片段 (PostgreSQL)")
-            else:
-                # 使用 Chroma
-                vectordb = Chroma.from_documents(
-                    documents=split_docs,
-                    embedding=get_embeddings_model(),
-                    persist_directory=os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
-                    collection_name=os.getenv("CHROMA_COLLECTION_NAME", "buddy_ai_knowledge")
-                )
-                vectordb.persist()
-                print(f"成功向量化 {len(split_docs)} 个文档片段 (Chroma)")
-
-            return {
-                "success": True,
-                "chunk_count": len(split_docs),
-                "file_metadata": file_metadata
-            }
-        except Exception as e:
-            print(f"创建向量数据库时出错: {str(e)}")
-            print(traceback.format_exc())
-            return {"success": False, "chunk_count": 0, "file_metadata": {}}
-
-    finally:
-        # 清理临时文件
-        for temp_file_path in temp_file_paths:
-            try:
-                user_file_service.cleanup_temp_file(temp_file_path)
-            except Exception as e:
-                print(f"清理临时文件失败: {e}")
 
 
 def delete_user_vector_data(user_id: str) -> bool:

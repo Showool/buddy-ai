@@ -77,7 +77,7 @@ class UserFileService:
                 old_file_id = existing_file['id']
                 logger.info(f"发现同名文件，删除旧文件和向量数据: {original_filename}")
 
-                # 【关键】先删除向量数据：使用用户ID和文件名匹配 langchain_pg_collection.cmetadata
+                # 【关键】先删除向量数据：使用统一collection，通过元数据过滤
                 try:
                     from psycopg2.extras import RealDictCursor
                     import psycopg2
@@ -85,25 +85,22 @@ class UserFileService:
                     vec_conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
                     vec_cursor = vec_conn.cursor()
 
-                    # 删除该用户和文件名的 embedding 数据
+                    # 删除该用户和文件ID的 embedding 数据（使用统一collection）
                     vec_cursor.execute("""
                         DELETE FROM langchain_pg_embedding
                         WHERE collection_id = (
                             SELECT uuid FROM langchain_pg_collection
-                            WHERE name = %s AND cmetadata @> %s::jsonb
+                            WHERE name = %s
                         )
-                    """, (original_filename, f'{{"user_id": "{user_id}"}}'))
+                        AND cmetadata->>'user_id' = %s
+                        AND cmetadata->>'filename' = %s
+                    """, (settings.PGVECTOR_COLLECTION_NAME, user_id, original_filename))
 
-                    # 删除 collection
-                    vec_cursor.execute("""
-                        DELETE FROM langchain_pg_collection
-                        WHERE name = %s AND cmetadata @> %s::jsonb
-                    """, (original_filename, f'{{"user_id": "{user_id}"}}'))
-
+                    deleted_count = vec_cursor.rowcount
                     vec_conn.commit()
                     vec_cursor.close()
                     vec_conn.close()
-                    logger.info(f"已删除向量数据: 用户={user_id}, 文件={original_filename}")
+                    logger.info(f"已删除向量数据: 用户={user_id}, 文件={original_filename}, 记录数={deleted_count}")
                 except Exception as e:
                     logger.warning(f"删除向量数据失败（可能尚不存在）: {e}")
 

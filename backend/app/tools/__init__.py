@@ -1,6 +1,5 @@
-from .system_tool import clear_conversation, update_user_name, retrieve_context, retriever_tool, hybrid_retrieve_context
-from .user_tool import get_weather_for_location, get_user_location, get_user_info, save_user_info, retrieve_memory, \
-    save_memory, save_conversation_memory
+from .retrieval_tool import search_knowledge_base
+from .user_tool import retrieve_memory, save_conversation_memory
 from .web_search_tool import tavily_search
 
 
@@ -9,35 +8,22 @@ def get_tools():
     获取所有可用的工具列表
     """
     return [
-        clear_conversation,
-        update_user_name,
-        get_weather_for_location,
-        # get_user_location,
-        # get_user_info,
-        # save_user_info,
-        retrieve_context,
-        tavily_search,
-        retriever_tool,
-        hybrid_retrieve_context,  # 新增混合检索工具
+        # 检索工具（唯一入口）
+        search_knowledge_base,
+
+        # 记忆管理
         retrieve_memory,
-        save_memory,
-        save_conversation_memory
+        save_conversation_memory,
+
+        # 实时信息
+        tavily_search,
     ]
 
 
 __all__ = [
-    "clear_conversation",
-    "update_user_name",
-    "get_weather_for_location",
-    # "get_user_location",
-    # "get_user_info",
-    # "save_user_info",
-    "get_tools",
-    "retrieve_context",
-    "tavily_search",
-    "retriever_tool",
-    "hybrid_retrieve_context",  # 新增
+    "search_knowledge_base",
     "retrieve_memory",
-    "save_memory",
-    "save_conversation_memory"
+    "save_conversation_memory",
+    "tavily_search",
+    "get_tools",
 ]

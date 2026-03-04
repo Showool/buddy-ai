@@ -1,15 +1,13 @@
 """
-检索编排服务 - 整合向量检索、全文搜索、重排序
+检索编排服务 - 整合向量检索、全文搜索、重排序（同步版本）
 """
 import logging
-import asyncio
-from typing import List, Optional
+from typing import List
 from dataclasses import dataclass
 
 from langchain_core.documents import Document
 
 from app.config import settings
-from app.retriever.embeddings_model import get_embeddings_model
 from app.services.fulltext_search_service import fulltext_search_service
 from app.services.qwen_rerank_service import qwen_rerank_service
 from app.services.pgvector_singleton import pgvector_singleton
@@ -30,9 +28,9 @@ class RetrievalOrchestrator:
     def __init__(self):
         self.reranker = qwen_rerank_service
         self.fulltext = fulltext_search_service
-        self.collection_name = settings.PGVECTOR_COLLECTION_NAME  # 从配置获取
+        self.collection_name = settings.PGVECTOR_COLLECTION_NAME
 
-    async def retrieve(
+    def retrieve(
         self,
         query: str,
         user_id: str,
@@ -44,27 +42,31 @@ class RetrievalOrchestrator:
         import time
         start_time = time.time()
 
-        # 并行执行向量检索和全文搜索
-        vector_result = self._retrieve_vector(query, user_id, k * 2)
-        fulltext_result = self._retrieve_fulltext(query, user_id, k * 2)
+        logger.info(f"开始检索: query='{query[:50]}...', user_id={user_id}, k={k}")
 
-        vector_r, fulltext_r = await asyncio.gather(
-            vector_result,
-            fulltext_result
-        )
+        # 执行向量检索和全文搜索
+        vector_result = self._retrieve_vector(query, user_id, k * 2)
+
+        if use_fulltext:
+            fulltext_result = self._retrieve_fulltext(query, user_id, k * 2)
+        else:
+            fulltext_result = RetrievalResult(documents=[], scores=[], sources=[])
+
+        logger.info(f"向量检索: 找到 {len(vector_result.documents)} 个结果")
+        logger.info(f"全文搜索: 找到 {len(fulltext_result.documents)} 个结果")
 
         # RRF 融合
         fused = self._rrf_fusion(
-            vector_r.documents,
-            vector_r.scores,
-            fulltext_r.documents,
-            fulltext_r.scores,
+            vector_result.documents,
+            vector_result.scores,
+            fulltext_result.documents,
+            fulltext_result.scores,
             k=k * 2
         )
 
         # Rerank（带触发阈值）
         if use_rerank and fused.documents and len(fused.documents) > rerank_threshold:
-            reranked = await self.reranker.rerank(query, fused.documents, top_k=k)
+            reranked = self.reranker.rerank(query, fused.documents, top_k=k)
             retrieval_time_ms = (time.time() - start_time) * 1000
             return RetrievalResult(
                 documents=reranked.documents,
@@ -81,14 +83,14 @@ class RetrievalOrchestrator:
                 metadata={"rerank_triggered": False, "retrieval_time_ms": retrieval_time_ms}
             )
 
-    async def _retrieve_vector(
+    def _retrieve_vector(
         self,
         query: str,
         user_id: str,
         k: int
     ) -> RetrievalResult:
-        vector_store = await pgvector_singleton.get_vector_store()
-        docs = await vector_store.asimilarity_search_with_score(
+        vector_store = pgvector_singleton.get_vector_store()
+        docs = vector_store.similarity_search_with_score(
             query=query,
             k=k,
             filter={"user_id": user_id, "doc_type": "chunk"}
@@ -97,19 +99,26 @@ class RetrievalOrchestrator:
         documents = [doc for doc, _ in docs]
         scores = [score for _, score in docs]
 
+        if documents:
+            logger.info(f"向量检索成功: 返回 {len(documents)} 个文档")
+            for i, (doc, score) in enumerate(docs[:3]):
+                logger.debug(f"  文档{i}: filename={doc.metadata.get('filename')}, score={score}")
+        else:
+            logger.warning(f"向量检索未找到结果: query='{query}', user_id={user_id}")
+
         return RetrievalResult(
             documents=documents,
             scores=scores,
             sources=["vector"] * len(documents)
         )
 
-    async def _retrieve_fulltext(
+    def _retrieve_fulltext(
         self,
         query: str,
         user_id: str,
         k: int
     ) -> RetrievalResult:
-        result = await fulltext_search_service.search(query, user_id, k)
+        result = fulltext_search_service.search(query, user_id, k)
         return RetrievalResult(
             documents=result.documents,
             scores=result.scores,

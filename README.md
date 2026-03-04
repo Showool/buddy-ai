@@ -8,6 +8,10 @@
 
 ![界面截图2](docs/chat-interface-2.png)
 
+## LangGraph 工作流程
+
+![LangGraph 工作流程图](docs/langgraph_workflow.png)
+
 ## 项目架构
 
 - **后端**: FastAPI + LangGraph

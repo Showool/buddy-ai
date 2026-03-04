@@ -27,6 +27,23 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # 项目根目录（自动检测）
+    PROJECT_ROOT: Optional[Path] = None
+
+    @field_validator("PROJECT_ROOT", mode="before")
+    @classmethod
+    def set_project_root(cls, v):
+        """自动设置项目根目录"""
+        if v is None:
+            # 从当前文件向上查找项目根目录（包含 README.md 的目录）
+            current = Path(__file__).resolve().parent
+            for _ in range(5):  # 最多向上查找 5 层
+                if (current / "README.md").exists() or (current / "README.MD").exists():
+                    return current
+                current = current.parent
+            return Path(__file__).resolve().parent.parent  # 默认返回 backend 的上级目录
+        return Path(v) if isinstance(v, str) else v
+
     # ========== API Keys ==========
     DASHSCOPE_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
@@ -62,8 +79,8 @@ class Settings(BaseSettings):
     LLM_STREAM: bool = True
 
     # ========== Embedding 配置 ==========
-    EMBEDDING_MODEL: str = "text-embedding-v2"
-    EMBEDDING_DIMENSIONS: int = 1536
+    EMBEDDING_MODEL: str = "text-embedding-v4"
+    EMBEDDING_DIMENSIONS: int = 1024
 
     # ========== Agent 配置 ==========
     MAX_TOOL_CALLS: int = 3

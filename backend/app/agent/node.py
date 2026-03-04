@@ -51,21 +51,17 @@ def generate_query_or_respond(state: AgentState,
 工具说明：
 - retrieve_memory(query, user_id): 根据查询词检索用户的历史记忆，user_id参数为 "{user_id}"
 - save_conversation_memory(question, answer, user_id): 保存对话到长期记忆，user_id参数为 "{user_id}"
-- retrieve_context(query, user_id): 从知识库检索相关信息，user_id参数为 "{user_id}" 用于过滤只检索该用户的文档
-- retriever_tool(query, user_id): 搜索文档信息，user_id参数为 "{user_id}" 用于过滤只检索该用户的文档
-- tavily_search: 网络搜索获取实时信息
-- get_weather_for_location: 获取天气信息
+- tavily_search: 网络搜索获取实时信息（新闻、动态等）
 
 对话流程：
 1. 分析用户问题，判断是否需要查询记忆
 2. 如需查询，先调用 retrieve_memory 获取历史信息
-3. 结合记忆、知识库和网络搜索回答问题
+3. 结合记忆和网络搜索回答问题
 4. 发现重要新信息时，在回答后调用 save_conversation_memory 保存
 
 注意：
 1. 不要过度使用 save_conversation_memory，只在真正需要长期保存的信息时调用
-2. 使用 retrieve_context 和 retriever_tool 时，务必传入 user_id="{user_id}" 以确保只检索该用户的文档
-3. 所有需要 user_id 参数的工具都应该使用当前用户ID: {user_id}"""
+2. 所有需要 user_id 参数的工具都应该使用当前用户ID: {user_id}"""
 
     # 将记忆工具和检索工具一起绑定到模型
     # 为工具添加默认参数（包括user_id）

@@ -190,6 +190,11 @@ class VectorizationService:
         total = len(chunks)
         for i in range(0, total, batch_size):
             batch = chunks[i:i + batch_size]
+
+            # 为每个chunk添加 doc_type 元数据
+            for doc in batch:
+                doc.metadata["doc_type"] = "chunk"
+
             await asyncio.to_thread(vector_store.add_documents, batch)
 
             processed = min(i + batch_size, total)

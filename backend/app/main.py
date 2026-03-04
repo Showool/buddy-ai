@@ -3,6 +3,7 @@ FastAPI 主应用入口
 """
 
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
@@ -34,17 +35,27 @@ async def lifespan(app: FastAPI):
         # 初始化向量数据库
         if settings.VECTOR_DB_TYPE == "postgresql":
             try:
-                from app.retriever.pgvector_store import get_pgvector_store
-                # 测试连接
-                test_store = get_pgvector_store()
-                logger.info(f"✅ PostgreSQL 向量存储连接成功")
+                # 测试 PostgreSQL 连接
+                import psycopg2
+                conn = psycopg2.connect(settings.POSTGRESQL_URL)
+                conn.close()
+                logger.info(f"✅ PostgreSQL 连接成功")
             except Exception as e:
-                logger.warning(f"⚠️  PostgreSQL 向量存储连接失败: {e}")
+                logger.warning(f"⚠️  PostgreSQL 连接失败: {e}")
                 logger.info("💡 提示: 确保 PostgreSQL 已安装 pgvector 扩展: CREATE EXTENSION IF NOT EXISTS vector;")
         else:
             # 初始化 Chroma 向量数据库目录
             Path(settings.CHROMA_PERSIST_DIR).mkdir(parents=True, exist_ok=True)
             logger.info(f"✅ Chroma DB directory: {settings.CHROMA_PERSIST_DIR}")
+
+        # 生成 LangGraph 工作流程图
+        try:
+            from app.agent.workflow_diagram import generate_workflow_diagram
+            diagram_path = generate_workflow_diagram()
+            if diagram_path:
+                logger.info(f"✅ LangGraph 流程图已生成: {diagram_path}")
+        except Exception as e:
+            logger.warning(f"⚠️  生成流程图失败（可忽略）: {e}")
 
     except Exception as e:
         logger.error(f"❌ Initialization failed: {e}")
