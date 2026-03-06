@@ -16,7 +16,6 @@ langchain-openai
 langchain-postgres
 langchain-tavily
 langchain-text-splitters
-langchain-chroma==1.1.0
 dashscope==1.25.9
 pgvector==0.3.6
 
@@ -29,7 +28,6 @@ langsmith
 # ========== Database ==========
 redis==5.0.1
 psycopg2-binary==2.9.9
-chromadb==1.4.1
 
 # ========== Utilities ==========
 tiktoken

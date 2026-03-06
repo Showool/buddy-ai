@@ -5,7 +5,6 @@ import logging
 from typing import Literal
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 
 from .state import AgentState
@@ -14,7 +13,7 @@ from ..services.retrieval_orchestrator import retrieval_orchestrator
 logger = logging.getLogger(__name__)
 
 
-class RetrievalDecision(BaseModel):
+class RAGDecision(BaseModel):
     should_retrieve: bool = Field(description="是否需要从知识库检索信息")
     reason: str = Field(description="判断理由")
 
@@ -24,9 +23,7 @@ QUICK_SKIP_KEYWORDS = ["天气", "新闻", "汇率", "股价", "实时", "今日
 
 def retrieval_node(
     state: AgentState,
-    config: RunnableConfig,
-    *,
-    store: BaseStore
+    config: RunnableConfig
 ) -> dict:
     """检索节点 - 执行混合检索"""
     messages = state.get("messages", [])
@@ -60,9 +57,7 @@ def retrieval_node(
 
 def retrieval_decision_node(
     state: AgentState,
-    config: RunnableConfig,
-    *,
-    store: BaseStore
+    config: RunnableConfig
 ) -> dict:
     """检索决策节点 - LLM智能判断 + 快速规则过滤"""
     messages = state.get("messages", [])
@@ -81,7 +76,7 @@ def retrieval_decision_node(
         from ..llm.llm_factory import get_llm
         from ..prompt.prompt import RETRIEVAL_DECISION_PROMPT
 
-        llm = get_llm().with_structured_output(RetrievalDecision)
+        llm = get_llm().with_structured_output(RAGDecision)
         result = llm.invoke(RETRIEVAL_DECISION_PROMPT.format(query=query))
 
         logger.info(f"LLM检索决策: should_retrieve={result.should_retrieve}, reason={result.reason}")

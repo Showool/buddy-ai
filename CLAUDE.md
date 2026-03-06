@@ -61,8 +61,7 @@ Create or edit `backend/.env`:
 - `DASHSCOPE_API_KEY` - Aliyun DashScope API key (for Qwen LLM and embeddings)
 - `TAVILY_API_KEY` - Tavily search API key
 - `REDIS_URL` - Redis connection string for checkpointing
-- `POSTGRESQL_URL` - PostgreSQL connection string for memory and vector storage
-- `VECTOR_DB_TYPE` - `chroma` (default) or `postgresql`
+- `POSTGRESQL_URL` - PostgreSQL connection string for memory and vector storage (requires pgvector extension)
 
 ## Architecture
 
@@ -105,9 +104,8 @@ Uses Pydantic Settings for environment-based configuration with support for deve
 - **LLM Factory** ([backend/app/llm/llm_factory.py](backend/app/llm/llm_factory.py)): Uses Qwen models via DashScope OpenAI-compatible API
 - **Embeddings** ([backend/app/retriever/embeddings_model.py](backend/app/retriever/embeddings_model.py)): DashScope text embeddings for vectorization
 - **Prompts** ([backend/app/prompt/prompt.py](backend/app/prompt/prompt.py)): System prompts for various agent operations
-- **Vector Store** ([backend/app/retriever/vector_store.py](backend/app/retriever/vector_store.py)): Abstraction layer that selects Chroma or PostgreSQL+pgvector based on `VECTOR_DB_TYPE` config
-- **PGVector Store** ([backend/app/retriever/pgvector_store.py](backend/app/retriever/pgvector_store.py)): PostgreSQL vector storage implementation
-- **Retriever** ([backend/app/retriever/get_retriever.py](backend/app/retriever/get_retriever.py)): Retrieval setup combining vector search and web search
+- **PGVector Store** ([backend/app/retriever/pgvector_store.py](backend/app/retriever/pgvector_store.py)): PostgreSQL vector storage implementation with pgvector
+- **Retriever** ([backend/app/retriever/get_retriever.py](backend/app/retriever/get_retriever.py)): Retrieval setup using PostgreSQL vector search and web search
 - **Memory** ([backend/app/memory/memory_factory.py](backend/app/memory/memory_factory.py)): PostgreSQL memory store
 
 ### Frontend (Vue3 + TypeScript)
@@ -127,19 +125,15 @@ The frontend is a Vue3 SPA with TypeScript, using Vite as the build tool.
 
 ### Vector Database Configuration
 
-**Chroma (default)**:
-- Stores vectors in local directory specified by `CHROMA_PERSIST_DIR` config (default: `./chroma_db`)
-- No additional database setup required
-
 **PostgreSQL+pgvector**:
-- Set `VECTOR_DB_TYPE=postgresql` in `.env`
-- Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
 - Uses the same PostgreSQL connection as memory storage
+- Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
+- Configured via `PGVECTOR_COLLECTION_NAME` in `.env` (default: `buddy_ai_docs`)
 
 ### Retrieval Strategy
 
-Dual retrieval is implemented:
-- Vector retrieval from configured vector database (Chroma or PostgreSQL) with DashScope embeddings
+Hybrid retrieval is implemented:
+- Vector retrieval from PostgreSQL+pgvector with DashScope embeddings
 - Web search via Tavily API (max 3 results)
 - Results are combined with knowledge base having priority
 
@@ -163,7 +157,7 @@ Supported formats: PDF, DOCX, TXT, MD, CSV (max 5MB per file)
 - When modifying the agent workflow, maintain the conditional edges structure in [backend/app/agent/graph.py](backend/app/agent/graph.py)
 - Tool configuration can be adjusted by modifying the tools list in agent configuration
 - WebSocket connections require user_id and optionally thread_id for session management
-- Vector store path uses `settings.CHROMA_PERSIST_DIR` config (see [vector_store.py](backend/app/retriever/vector_store.py))
+- Vector storage uses PostgreSQL+pgvector extension
 
 ## Dependencies
 

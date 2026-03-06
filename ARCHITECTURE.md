@@ -517,7 +517,7 @@ Agent 完成
     ↓
 前端发送向量化请求
     ↓
-后端处理文件 → 向量化 → 存入 Chroma
+后端处理文件 → 向量化 → 存入 PostgreSQL+pgvector
     ↓
 返回成功响应
 ```
@@ -578,7 +578,6 @@ DASHSCOPE_API_KEY=your_dashscope_key
 TAVILY_API_KEY=your_tavily_key
 REDIS_URL=redis://localhost:6379/0
 POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddyai
-CHROMA_PERSIST_DIR=./chroma_db
 UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=5242880
 ```

@@ -15,7 +15,6 @@ services:
       - POSTGRESQL_URL=postgresql://postgres:postgres@postgres:5432/buddyai
     volumes:
       - ./backend/uploads:/app/uploads
-      - ./backend/chroma_db:/app/chroma_db
     depends_on:
       - redis
       - postgres

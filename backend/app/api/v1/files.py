@@ -115,53 +115,9 @@ def get_vector_collection_metadata(user_id: str = None):
             finally:
                 cursor.close()
                 conn.close()
-        else:
-            # Chroma - 从统一collection查询
-            from langchain_chroma import Chroma
-            from app.retriever.embeddings_model import get_embeddings_model
-
-            if not user_id:
-                return []
-
-            vector_store = Chroma(
-                persist_directory=settings.CHROMA_PERSIST_DIR,
-                embedding_function=get_embeddings_model(),
-                collection_name=settings.CHROMA_COLLECTION_NAME
-            )
-
-            all_docs = vector_store.get(include=["metadatas"])
-            if not all_docs or not all_docs.get("metadatas"):
-                return []
-
-            # 按file_id分组统计
-            file_chunks = {}
-            for metadata in all_docs["metadatas"]:
-                if metadata.get("user_id") != user_id:
-                    continue
-                file_id = metadata.get("file_id")
-                if file_id:
-                    file_chunks[file_id] = file_chunks.get(file_id, 0) + 1
-
-            # 获取用户文件信息
-            from app.services.user_file_service import user_file_service
-            user_files = user_file_service.list_user_files(user_id)
-
-            metadatas = []
-            for user_file in user_files:
-                chunk_count = file_chunks.get(user_file.id, 0)
-                metadatas.append({
-                    "file_id": user_file.id,
-                    "filename": user_file.original_filename,
-                    "file_type": user_file.file_type,
-                    "file_size": user_file.file_size,
-                    "upload_time": user_file.upload_time.isoformat() if user_file.upload_time else None,
-                    "user_id": user_id,
-                    "chunk_count": chunk_count
-                })
-
-            return metadatas
     except Exception as e:
         logger.error(f"获取向量数据库元数据失败: {e}")
+        return []
         return []
 
 
@@ -240,48 +196,25 @@ async def list_files(
     只返回该用户的文件
     从向量数据库和用户文件表中获取文件信息
     """
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-
     files = []
 
-    # 获取文件和向量化任务状态
+    # 获取用户文件列表（已包含 vectorization_status）
     user_files = user_file_service.list_user_files(user_id)
 
-    # 获取所有向量化任务状态
-    task_status_map = {}
-    conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT file_id, status, progress
-            FROM vectorization_tasks
-            WHERE user_id = %s
-        """, (user_id,))
-        for row in cursor.fetchall():
-            task_status_map[row['file_id']] = {
-                'status': row['status'],
-                'progress': row['progress']
-            }
-    finally:
-        cursor.close()
-        conn.close()
-
     for user_file in user_files:
-        # 确定文件状态
-        file_status = "uploaded"
-        if user_file.id in task_status_map:
-            task = task_status_map[user_file.id]
-            if task['status'] == 'pending':
-                file_status = 'vectorizing'
-            elif task['status'] == 'processing':
-                file_status = 'vectorizing'
-            elif task['status'] == 'completed':
-                file_status = 'vectorized'
-            elif task['status'] == 'failed':
-                file_status = 'failed'
+        # 根据 vectorization_status 确定文件状态
+        vec_status = user_file.vectorization_status or 'pending'
+
+        if vec_status == 'completed':
+            file_status = 'vectorized'
+        elif vec_status in ('pending', 'processing'):
+            file_status = 'vectorizing'
+        elif vec_status == 'failed':
+            file_status = 'failed'
         elif user_file.chunk_count > 0:
             file_status = 'vectorized'
+        else:
+            file_status = 'uploaded'
 
         files.append(FileInfo(
             id=user_file.id,
@@ -436,13 +369,28 @@ async def get_vectorization_progress(file_id: str):
     Args:
         file_id: 文件ID
     """
-    task_status = await vectorization_service.get_task_status(file_id)
-    if not task_status:
+    user_file = user_file_service.get_file_by_id(file_id)
+    if not user_file:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="未找到向量化任务"
+            detail="文件不存在"
         )
-    return task_status
+
+    vec_status = user_file.vectorization_status or 'pending'
+    progress = 0
+
+    if vec_status == 'completed':
+        progress = 100
+    elif vec_status == 'processing':
+        progress = 50
+
+    return {
+        "status": vec_status,
+        "progress": progress,
+        "total_chunks": user_file.chunk_count or 0,
+        "processed_chunks": user_file.chunk_count or 0 if vec_status == 'completed' else 0,
+        "error_message": None
+    }
 
 
 @router.get("/files/knowledge-base")

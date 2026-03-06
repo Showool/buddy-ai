@@ -2,12 +2,12 @@ from typing import Literal
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.store.base import BaseStore
 
 from .state import GradeDocuments, AgentState
 from ..llm.llm_factory import get_llm
-from ..prompt.prompt import REWRITE_PROMPT, GENERATE_PROMPT, GRADE_PROMPT
-from ..tools import get_tools
+from ..prompt.prompt import REWRITE_PROMPT, GRADE_PROMPT
+from ..tools.web_search_tool import tavily_search
+from ..tools.user_tool import save_conversation_memory
 
 logger = __import__('logging').getLogger(__name__)
 
@@ -31,49 +31,59 @@ def _calculate_query_similarity(q1: str, q2: str) -> float:
     return len(intersection) / len(union) if union else 0.0
 
 
-def generate_query_or_respond(state: AgentState,
-                              config: RunnableConfig,
-                              *,
-                              store: BaseStore, ):
-    """调用模型，根据当前状态生成响应。针对问题，它会选择使用检索工具取回，或者简单地回应用户。"""
-    # 获取用户ID
+def generate_response(state: AgentState, config: RunnableConfig) -> dict:
+    """统一响应节点 - 始终绑定工具"""
     user_id = config["configurable"]["user_id"]
+    question = state["question"]
+    print(f"用户问题: {question}")
 
-    # 构建系统消息，包含用户ID信息和记忆管理指导
-    system_msg = f"""你是一个智能助手，具有长期记忆功能。用户ID是: {user_id}
+    retrieved_docs = state.get("retrieved_documents", [])
+    user_memories = state.get("user_memories", [])
+    has_context = bool(retrieved_docs or user_memories)
 
-记忆管理规则：
-1. 当用户问题涉及个人信息、偏好、历史对话等，优先使用 retrieve_memory 工具查询用户记忆
-2. 查询记忆时使用 user_id 参数（当前用户ID: {user_id}）
-3. 在回答用户问题后，如果对话包含重要信息（如个人信息、偏好、约定等），使用 save_conversation_memory 工具保存到长期记忆
-4. save_conversation_memory 需要传入用户的问题和你的回答作为参数
+    context_parts = []
+    if user_memories:
+        memory_context = "\n".join([f"- {m['data']}" for m in user_memories])
+        context_parts.append(f"【用户记忆】\n{memory_context}")
+    if retrieved_docs:
+        doc_context = "\n\n".join([d.page_content for d in retrieved_docs])
+        context_parts.append(f"【知识库】\n{doc_context}")
 
-工具说明：
-- retrieve_memory(query, user_id): 根据查询词检索用户的历史记忆，user_id参数为 "{user_id}"
-- save_conversation_memory(question, answer, user_id): 保存对话到长期记忆，user_id参数为 "{user_id}"
-- tavily_search: 网络搜索获取实时信息（新闻、动态等）
+    if has_context:
+        system_msg = f"""你是一个智能助手，用户ID: {user_id}
 
-对话流程：
-1. 分析用户问题，判断是否需要查询记忆
-2. 如需查询，先调用 retrieve_memory 获取历史信息
-3. 结合记忆和网络搜索回答问题
-4. 发现重要新信息时，在回答后调用 save_conversation_memory 保存
+        【已检索到以下上下文信息】
+        {chr(10).join(context_parts)}
 
-注意：
-1. 不要过度使用 save_conversation_memory，只在真正需要长期保存的信息时调用
-2. 所有需要 user_id 参数的工具都应该使用当前用户ID: {user_id}"""
+        规则：
+        1. 优先使用上述上下文回答
+        2. 如需补充信息，使用 tavily_search
+        3. 如果用户输入个人信息、偏好、历史对话、日程、约定等，需调用 save_conversation_memory
+        4. 已检索到以下上下文信息，不需要保存记忆
 
-    # 将记忆工具和检索工具一起绑定到模型
-    # 为工具添加默认参数（包括user_id）
+        用户输入内容：{question}
+        """
+    else:
+        system_msg = f"""你是一个智能助手，用户ID: {user_id}
 
-    response = (
-        get_llm()
-        .bind_tools(get_tools()).invoke([{"role": "system", "content": system_msg}] + state["messages"])
-    )
+        【没有检索到相关上下文】
+
+        规则：
+        1. 使用工具获取信息：tavily_search
+        2. 如果用户输入个人信息、偏好、历史对话、日程、约定等，需调用 save_conversation_memory
+        3. 已检索到以下上下文信息，不需要保存记忆
+
+        用户输入内容：{question}
+        """
+
+    response = get_llm().bind_tools([tavily_search, save_conversation_memory]).invoke([
+        {"role": "system", "content": system_msg}
+    ])
+
     return {"messages": [response]}
 
 
-def rewrite_question(state: AgentState):
+def rewrite_question(state: AgentState) -> dict:
     """重写问题（防止死循环）"""
     messages = state["messages"]
     question = messages[0].content
@@ -83,14 +93,22 @@ def rewrite_question(state: AgentState):
     MAX_RETRIES = 3
     if loop_step >= MAX_RETRIES:
         logger.warning(f"超过最大重试次数 ({MAX_RETRIES})，停止重写")
-        return {"messages": [HumanMessage(content=question)], "loop_step": loop_step + 1}
+        return {
+            "messages": [HumanMessage(content=question)],
+            "loop_step": loop_step + 1,
+            "routing_decision": "generate_response"
+        }
 
     # 检测重复查询
     current_query_normalized = question.lower().strip()
     for prev_query in query_history[-3:]:
         if _calculate_query_similarity(current_query_normalized, prev_query.lower().strip()) > 0.9:
             logger.warning("检测到重复查询，停止重写")
-            return {"messages": [HumanMessage(content=question)], "loop_step": loop_step + 1}
+            return {
+                "messages": [HumanMessage(content=question)],
+                "loop_step": loop_step + 1,
+                "routing_decision": "generate_response"
+            }
 
     # 策略判断
     last_message = messages[-1]
@@ -119,42 +137,19 @@ def rewrite_question(state: AgentState):
     return {
         "messages": [HumanMessage(content=rewritten_query)],
         "loop_step": loop_step + 1,
-        "query_history": query_history + [question]
+        "query_history": query_history + [question],
+        "routing_decision": None
     }
 
 
-def generate_answer(state: AgentState):
-    """生成答案 - 使用检索到的上下文"""
-    question = state["messages"][0].content
-
-    # 从状态中获取检索结果
-    retrieved_docs = state.get("retrieved_documents", [])
-    metadata = state.get("retrieval_metadata")
-
-    if retrieved_docs:
-        context = "\n\n".join([
-            f"[来源: {doc.metadata.get('filename', 'unknown')}] {doc.page_content}"
-            for doc in retrieved_docs
-        ])
-        logger.info(f"生成答案: 使用 {len(retrieved_docs)} 个检索文档")
-    else:
-        context = state["messages"][-1].content
-
-    prompt = GENERATE_PROMPT.format(question=question, context=context)
-    response = get_llm().invoke([{"role": "user", "content": prompt}])
-    return {"messages": [response]}
-
-
-def grade_documents(
-        state: AgentState,
-) -> Literal["generate_answer", "rewrite_question"]:
-    """确定检索到的文件是否与问题相关."""
+def grade_documents(state: AgentState) -> dict:
+    """确定检索到的文件是否与问题相关，返回状态更新."""
     question = state["messages"][0].content
     context = state["messages"][-1].content
 
     loop_step = state.get("loop_step", 0)
     if loop_step >= 3:
-        return "generate_answer"
+        return {"routing_decision": "generate_response"}
 
     prompt = GRADE_PROMPT.format(question=question, context=context)
     response = (
@@ -165,7 +160,13 @@ def grade_documents(
     )
     score = response.binary_score
     if score == "yes":
-        return "generate_answer"
+        print(f"Documents are relevant, generating response")
+        return {"routing_decision": "generate_response"}
     else:
         print(f"Rewriting question: {question}, times: {loop_step}")
-        return "rewrite_question"
+        return {"routing_decision": "rewrite_question"}
+
+
+def grade_routing_condition(state: AgentState) -> str:
+    """基于 grade_documents 的路由决策来决定下一步."""
+    return state.get("routing_decision", "generate_response")

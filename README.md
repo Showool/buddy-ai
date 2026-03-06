@@ -17,17 +17,16 @@
 - **后端**: FastAPI + LangGraph
 - **前端**: Vue3 + TypeScript + Pinia + Element Plus
 - **LLM**: 阿里云 DashScope (Qwen 模型)
-- **向量库**: PostgreSQL+pgvector (主推) / Chroma (可选)
+- **向量库**: PostgreSQL+pgvector
 - **记忆**: PostgreSQL
 - **会话**: Redis (Checkpointing)
-- **检索**: 混合检索（向量 + 全文搜索 + RRF融合 + Qwen Rerank）
+- **检索**: 混合检索（向量 + 全文搜索 + RRF融合）
 - **包管理**: pip + conda
 
 ## 核心特性
 
 - 🤖 **智能对话**: 基于 LangGraph 的多轮对话工作流
 - 📚 **混合检索**: 向量检索 + PostgreSQL 全文搜索 + RRF 融合
-- 🎯 **重排序**: 阿里云 Qwen Rerank 模型优化结果
 - 🔍 **网络搜索**: Tavily API 实时网络搜索
 - 💾 **长期记忆**: 用户偏好和历史记录自动保存
 - 💾 **异步向量化**: 文件上传后后台向量化，带实时进度追踪
@@ -43,7 +42,6 @@
 - **向量检索**: 基于 pgvector 的语义相似度搜索
 - **全文搜索**: PostgreSQL tsvector 的关键词匹配
 - **RRF 融合**: Reciprocal Rank Fusion 算法合并结果
-- **智能 Rerank**: 超过阈值时自动触发 Qwen Rerank 优化
 
 ### 记忆系统
 
@@ -62,7 +60,7 @@
 ### 存储设计
 
 - **文件内容**: PostgreSQL BLOB 存储
-- **向量数据**: pgvector 或 Chroma
+- **向量数据**: pgvector
 - **任务状态**: 独立表跟踪向量化进度
 - **记忆存储**: LangChain PostgresStore
 
@@ -131,13 +129,8 @@ TAVILY_API_KEY=your_tavily_api_key
 REDIS_URL=redis://localhost:6379/0
 POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddy-ai
 
-# 向量数据库配置（推荐使用 PostgreSQL+pgvector）
-VECTOR_DB_TYPE=postgresql
+# 向量数据库配置（PostgreSQL+pgvector）
 PGVECTOR_COLLECTION_NAME=buddy_kb
-
-# 可选：Chroma 向量库
-# VECTOR_DB_TYPE=chroma
-# CHROMA_PERSIST_DIR=./chroma_db
 
 # 文件上传配置
 UPLOAD_DIR=./uploads
@@ -476,19 +469,12 @@ npm run build
 
 ## 向量数据库配置
 
-### PostgreSQL+pgvector（推荐）
+### PostgreSQL+pgvector
 
 ```env
-VECTOR_DB_TYPE=postgresql
 POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddy-ai
 PGVECTOR_COLLECTION_NAME=buddy_kb
 ```
-
-**优势**:
-- 统一的数据库基础设施
-- 支持全文搜索（tsvector）
-- 可与向量检索并行执行
-- 更好的数据一致性和事务支持
 
 **初始化**:
 ```sql
@@ -496,18 +482,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
 运行 `python init_db.py` 自动创建所需表结构。
-
-### Chroma（可选）
-
-```env
-VECTOR_DB_TYPE=chroma
-CHROMA_PERSIST_DIR=./chroma_db
-```
-
-**优势**:
-- 无需额外数据库
-- 快速启动和开发
-- 适合本地测试
 
 ## 架构设计文档
 

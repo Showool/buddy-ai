@@ -12,7 +12,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.config import settings
-from app.models.user_file import UserFile, UserFileResponse
+from app.models.user_file import UserFile
 from app.utils.datetime_utils import get_beijing_now
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ class UserFileService:
             cursor.execute(
                 """
                 SELECT id, user_id, original_filename, file_type, file_size, upload_time,
-                       is_public, content_hash, document_summary, chunk_count, last_vectorized_at
+                       is_public, content_hash, document_summary, chunk_count, last_vectorized_at, vectorization_status
                 FROM user_files WHERE id = %s
                 """,
                 (file_id,)
@@ -161,7 +161,8 @@ class UserFileService:
                     content_hash=row.get('content_hash'),
                     document_summary=row.get('document_summary'),
                     chunk_count=row.get('chunk_count', 0),
-                    last_vectorized_at=row.get('last_vectorized_at')
+                    last_vectorized_at=row.get('last_vectorized_at'),
+                    vectorization_status=row.get('vectorization_status', 'pending')
                 )
             return None
 
@@ -213,7 +214,7 @@ class UserFileService:
             cursor.execute(
                 """
                 SELECT id, user_id, original_filename, file_type, file_size, upload_time,
-                       is_public, content_hash, document_summary, chunk_count, last_vectorized_at
+                       is_public, content_hash, document_summary, chunk_count, last_vectorized_at, vectorization_status
                 FROM user_files
                 WHERE user_id = %s AND original_filename = %s
                 """,
@@ -233,7 +234,8 @@ class UserFileService:
                     content_hash=row.get('content_hash'),
                     document_summary=row.get('document_summary'),
                     chunk_count=row.get('chunk_count', 0),
-                    last_vectorized_at=row.get('last_vectorized_at')
+                    last_vectorized_at=row.get('last_vectorized_at'),
+                    vectorization_status=row.get('vectorization_status', 'pending')
                 )
             return None
 
@@ -257,7 +259,7 @@ class UserFileService:
             cursor.execute(
                 """
                 SELECT id, user_id, original_filename, file_type, file_size, upload_time,
-                       is_public, content_hash, document_summary, chunk_count, last_vectorized_at
+                       is_public, content_hash, document_summary, chunk_count, last_vectorized_at, vectorization_status
                 FROM user_files
                 WHERE user_id = %s
                 ORDER BY upload_time DESC
@@ -278,7 +280,8 @@ class UserFileService:
                     content_hash=row.get('content_hash'),
                     document_summary=row.get('document_summary'),
                     chunk_count=row.get('chunk_count', 0),
-                    last_vectorized_at=row.get('last_vectorized_at')
+                    last_vectorized_at=row.get('last_vectorized_at'),
+                    vectorization_status=row.get('vectorization_status', 'pending')
                 )
                 for row in rows
             ]
@@ -372,50 +375,23 @@ class UserFileService:
             file_id: 文件ID
         """
         try:
-            from app.config import settings
+            from app.retriever.pgvector_store import get_pgvector_store
 
-            if settings.VECTOR_DB_TYPE == "postgresql":
-                from app.retriever.pgvector_store import get_pgvector_store
+            vector_store = get_pgvector_store()
 
-                vector_store = get_pgvector_store()
+            # 获取所有文档
+            all_docs = vector_store.get(include=["metadatas", "ids"])
+            if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
+                # 找到该文件的所有文档ID
+                doc_ids_to_delete = []
+                for idx, metadata in enumerate(all_docs["metadatas"]):
+                    if metadata.get("file_id") == file_id:
+                        doc_ids_to_delete.append(all_docs["ids"][idx])
 
-                # 获取所有文档
-                all_docs = vector_store.get(include=["metadatas", "ids"])
-                if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
-                    # 找到该文件的所有文档ID
-                    doc_ids_to_delete = []
-                    for idx, metadata in enumerate(all_docs["metadatas"]):
-                        if metadata.get("file_id") == file_id:
-                            doc_ids_to_delete.append(all_docs["ids"][idx])
-
-                    # 删除这些文档
-                    if doc_ids_to_delete:
-                        vector_store.delete(ids=doc_ids_to_delete)
-                        logger.info(f"从向量数据库删除了 {len(doc_ids_to_delete)} 个文档片段")
-            else:
-                # Chroma
-                from langchain_chroma import Chroma
-                from app.retriever.embeddings_model import get_embeddings_model
-
-                vector_store = Chroma(
-                    persist_directory=settings.CHROMA_PERSIST_DIR,
-                    embedding_function=get_embeddings_model(),
-                    collection_name=settings.CHROMA_COLLECTION_NAME
-                )
-
-                # 获取所有文档
-                all_docs = vector_store.get(include=["metadatas", "ids"])
-                if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
-                    # 找到该文件的所有文档ID
-                    doc_ids_to_delete = []
-                    for idx, metadata in enumerate(all_docs["metadatas"]):
-                        if metadata.get("file_id") == file_id:
-                            doc_ids_to_delete.append(all_docs["ids"][idx])
-
-                    # 删除这些文档
-                    if doc_ids_to_delete:
-                        vector_store.delete(ids=doc_ids_to_delete)
-                        logger.info(f"从 Chroma 向量数据库删除了 {len(doc_ids_to_delete)} 个文档片段")
+                # 删除这些文档
+                if doc_ids_to_delete:
+                    vector_store.delete(ids=doc_ids_to_delete)
+                    logger.info(f"从向量数据库删除了 {len(doc_ids_to_delete)} 个文档片段")
 
         except Exception as e:
             logger.error(f"删除向量数据失败: {e}")

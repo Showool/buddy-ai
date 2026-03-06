@@ -9,7 +9,6 @@ from langchain_core.documents import Document
 
 from app.config import settings
 from app.services.fulltext_search_service import fulltext_search_service
-from app.services.qwen_rerank_service import qwen_rerank_service
 from app.services.pgvector_singleton import pgvector_singleton
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,6 @@ class RetrievalResult:
 
 class RetrievalOrchestrator:
     def __init__(self):
-        self.reranker = qwen_rerank_service
         self.fulltext = fulltext_search_service
         self.collection_name = settings.PGVECTOR_COLLECTION_NAME
 
@@ -64,24 +62,14 @@ class RetrievalOrchestrator:
             k=k * 2
         )
 
-        # Rerank（带触发阈值）
-        if use_rerank and fused.documents and len(fused.documents) > rerank_threshold:
-            reranked = self.reranker.rerank(query, fused.documents, top_k=k)
-            retrieval_time_ms = (time.time() - start_time) * 1000
-            return RetrievalResult(
-                documents=reranked.documents,
-                scores=reranked.scores,
-                sources=["rrf_reranked"] * len(reranked.documents),
-                metadata={"rerank_triggered": True, "retrieval_time_ms": retrieval_time_ms}
-            )
-        else:
-            retrieval_time_ms = (time.time() - start_time) * 1000
-            return RetrievalResult(
-                documents=fused.documents[:k],
-                scores=fused.scores[:k],
-                sources=["rrf_fused"] * len(fused.documents[:k]),
-                metadata={"rerank_triggered": False, "retrieval_time_ms": retrieval_time_ms}
-            )
+        retrieval_time_ms = (time.time() - start_time) * 1000
+        return RetrievalResult(
+            documents=fused.documents[:k],
+            scores=fused.scores[:k],
+            sources=["rrf_fused"] * len(fused.documents[:k]),
+            metadata={"rerank_triggered": False, "retrieval_time_ms": retrieval_time_ms}
+        )
+            
 
     def _retrieve_vector(
         self,

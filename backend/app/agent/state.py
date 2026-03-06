@@ -22,6 +22,10 @@ class AgentState(MessagesState):
     retrieved_documents: List[Document] = Field(default_factory=list)
     retrieval_metadata: Optional[RetrievalMetadata] = None
     should_retrieve: bool = False
+    user_memories: List[Dict] = Field(default_factory=list)
+    retrieval_needed: Dict[str, bool] = Field(default_factory=dict)
+    routing_decision: Optional[str] = None
+    question: str = Field(description="当前问题")
 
 
 class GradeDocuments(BaseModel):

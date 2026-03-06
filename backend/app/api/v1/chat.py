@@ -11,7 +11,6 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from app.config import settings
 from app.models.chat import (
-    UserMessageRequest,
     AgentStepMessage,
     AgentCompleteMessage,
     ErrorMessage,

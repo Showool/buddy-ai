@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.api.v1 import chat, files, sessions, memory
+from app.api.v1 import chat, files
 
 # 配置日志
 logging.basicConfig(
@@ -32,21 +32,15 @@ async def lifespan(app: FastAPI):
     try:
         logger.info(f"✅ Debug mode: {settings.DEBUG}")
 
-        # 初始化向量数据库
-        if settings.VECTOR_DB_TYPE == "postgresql":
-            try:
-                # 测试 PostgreSQL 连接
-                import psycopg2
-                conn = psycopg2.connect(settings.POSTGRESQL_URL)
-                conn.close()
-                logger.info(f"✅ PostgreSQL 连接成功")
-            except Exception as e:
-                logger.warning(f"⚠️  PostgreSQL 连接失败: {e}")
-                logger.info("💡 提示: 确保 PostgreSQL 已安装 pgvector 扩展: CREATE EXTENSION IF NOT EXISTS vector;")
-        else:
-            # 初始化 Chroma 向量数据库目录
-            Path(settings.CHROMA_PERSIST_DIR).mkdir(parents=True, exist_ok=True)
-            logger.info(f"✅ Chroma DB directory: {settings.CHROMA_PERSIST_DIR}")
+        # 测试 PostgreSQL 连接
+        try:
+            import psycopg2
+            conn = psycopg2.connect(settings.POSTGRESQL_URL)
+            conn.close()
+            logger.info(f"✅ PostgreSQL 连接成功")
+        except Exception as e:
+            logger.warning(f"⚠️  PostgreSQL 连接失败: {e}")
+            logger.info("💡 提示: 确保 PostgreSQL 已安装 pgvector 扩展: CREATE EXTENSION IF NOT EXISTS vector;")
 
         # 生成 LangGraph 工作流程图
         try:
@@ -128,8 +122,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 # 路由注册
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(files.router, prefix="/api/v1", tags=["files"])
-app.include_router(sessions.router, prefix="/api/v1", tags=["sessions"])
-app.include_router(memory.router, prefix="/api/v1", tags=["memory"])
+
 
 
 @app.get("/")

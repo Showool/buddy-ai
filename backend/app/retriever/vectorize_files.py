@@ -1,11 +1,10 @@
-import os
 import traceback
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredMarkdownLoader, Docx2txtLoader, TextLoader, CSVLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_postgres import PGVector
 from langchain_core.documents import Document
 
 from .embeddings_model import get_embeddings_model
@@ -75,29 +74,15 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
         # 删除旧的向量数据（使用统一collection，通过file_id和user_id过滤）
         delete_file_vectors_by_metadata(file_id, user_id)
 
-        # 添加到向量数据库（使用统一collection）
-        if settings.VECTOR_DB_TYPE == "postgresql":
-            from langchain_postgres import PGVector
-
-            # 使用统一 collection 名称，通过 metadata 中的 file_id 和 user_id 区分文件
-            vectordb = PGVector(
-                embeddings=get_embeddings_model(),
-                collection_name=settings.PGVECTOR_COLLECTION_NAME,  # 使用统一collection
-                connection=settings.POSTGRESQL_URL,
-                use_jsonb=True,
-            )
-            vectordb.add_documents(split_docs)
-            print(f"成功向量化 {len(split_docs)} 个文档片段 (PostgreSQL)")
-        else:
-            # Chroma 逻辑
-            vectordb = Chroma.from_documents(
-                documents=split_docs,
-                embedding=get_embeddings_model(),
-                persist_directory=os.getenv("CHROMA_PERSIST_DIR", "./chroma_db"),
-                collection_name=settings.CHROMA_COLLECTION_NAME,
-                metadata={"file_id": file_id, "user_id": user_id}
-            )
-            vectordb.persist()
+        # 添加到 PostgreSQL 向量数据库（使用统一collection）
+        vectordb = PGVector(
+            embeddings=get_embeddings_model(),
+            collection_name=settings.PGVECTOR_COLLECTION_NAME,
+            connection=settings.POSTGRESQL_URL,
+            use_jsonb=True,
+        )
+        vectordb.add_documents(split_docs)
+        print(f"成功向量化 {len(split_docs)} 个文档片段 (PostgreSQL)")
 
         # 清理临时文件
         user_file_service.cleanup_temp_file(temp_file_path)
@@ -129,56 +114,29 @@ def delete_file_vectors_by_metadata(file_id: str, user_id: str) -> bool:
         bool: 是否删除成功
     """
     try:
-        if settings.VECTOR_DB_TYPE == "postgresql":
-            from psycopg2.extras import RealDictCursor
-            import psycopg2
+        from psycopg2.extras import RealDictCursor
+        import psycopg2
 
-            # 删除 embedding 数据（通过 metadata 过滤）
-            conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-            cursor = conn.cursor()
+        # 删除 embedding 数据（通过 metadata 过滤）
+        conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
 
-            cursor.execute("""
-                DELETE FROM langchain_pg_embedding
-                WHERE collection_id = (
-                    SELECT uuid FROM langchain_pg_collection
-                    WHERE name = %s
-                )
-                AND cmetadata->>'file_id' = %s
-                AND cmetadata->>'user_id' = %s
-            """, (settings.PGVECTOR_COLLECTION_NAME, file_id, user_id))
-
-            deleted_count = cursor.rowcount
-            conn.commit()
-            cursor.close()
-            conn.close()
-            print(f"删除文件 {file_id} 的向量数据: {deleted_count} 条记录")
-            return deleted_count > 0
-        else:
-            # Chroma 逻辑 - 需要遍历查找并删除
-            from langchain_chroma import Chroma
-
-            vector_store = Chroma(
-                persist_directory=settings.CHROMA_PERSIST_DIR,
-                embedding_function=get_embeddings_model(),
-                collection_name=settings.CHROMA_COLLECTION_NAME
+        cursor.execute("""
+            DELETE FROM langchain_pg_embedding
+            WHERE collection_id = (
+                SELECT uuid FROM langchain_pg_collection
+                WHERE name = %s
             )
+            AND cmetadata->>'file_id' = %s
+            AND cmetadata->>'user_id' = %s
+        """, (settings.PGVECTOR_COLLECTION_NAME, file_id, user_id))
 
-            # 获取所有文档
-            all_docs = vector_store.get(include=["metadatas", "ids"])
-            if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
-                # 找到该文件的所有文档ID
-                doc_ids_to_delete = []
-                for idx, metadata in enumerate(all_docs["metadatas"]):
-                    if metadata.get("file_id") == file_id and metadata.get("user_id") == user_id:
-                        doc_ids_to_delete.append(all_docs["ids"][idx])
-
-                # 删除这些文档
-                if doc_ids_to_delete:
-                    vector_store.delete(ids=doc_ids_to_delete)
-                    print(f"删除文件 {file_id} 的向量数据: {len(doc_ids_to_delete)} 条记录")
-                    return True
-
-            return False
+        deleted_count = cursor.rowcount
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print(f"删除文件 {file_id} 的向量数据: {deleted_count} 条记录")
+        return deleted_count > 0
     except Exception as e:
         print(f"删除向量数据失败: {e}")
         return False
@@ -191,47 +149,33 @@ def delete_file_vectors(filename: str, user_id: str) -> bool:
     此方法保留用于向后兼容，但推荐使用 delete_file_vectors_by_metadata
     """
     try:
-        if settings.VECTOR_DB_TYPE == "postgresql":
-            from psycopg2.extras import RealDictCursor
-            import psycopg2
+        from psycopg2.extras import RealDictCursor
+        import psycopg2
 
-            # 删除 collection
-            conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-            cursor = conn.cursor()
+        # 删除 collection
+        conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
 
-            # 先删除 embedding 数据
-            cursor.execute("""
-                DELETE FROM langchain_pg_embedding
-                WHERE collection_id = (
-                    SELECT uuid FROM langchain_pg_collection
-                    WHERE name = %s AND cmetadata @> %s::jsonb
-                )
-            """, (filename, f'{{"user_id": "{user_id}"}}'))
-
-            # 删除 collection
-            cursor.execute(
-                "DELETE FROM langchain_pg_collection WHERE name = %s AND cmetadata @> %s::jsonb",
-                (filename, f'{{"user_id": "{user_id}"}}')
+        # 先删除 embedding 数据
+        cursor.execute("""
+            DELETE FROM langchain_pg_embedding
+            WHERE collection_id = (
+                SELECT uuid FROM langchain_pg_collection
+                WHERE name = %s AND cmetadata @> %s::jsonb
             )
+        """, (filename, f'{{"user_id": "{user_id}"}}'))
 
-            conn.commit()
-            cursor.close()
-            conn.close()
-            print(f"删除文件 {filename} 的向量数据")
-            return True
-        else:
-            # Chroma 逻辑
-            from langchain_chroma import Chroma
+        # 删除 collection
+        cursor.execute(
+            "DELETE FROM langchain_pg_collection WHERE name = %s AND cmetadata @> %s::jsonb",
+            (filename, f'{{"user_id": "{user_id}"}}')
+        )
 
-            vector_store = Chroma(
-                persist_directory=settings.CHROMA_PERSIST_DIR,
-                embedding_function=get_embeddings_model(),
-                collection_name=filename
-            )
-            # 删除整个 collection
-            vector_store.delete_collection()
-            print(f"删除 Chroma collection: {filename}")
-            return True
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print(f"删除文件 {filename} 的向量数据")
+        return True
     except Exception as e:
         print(f"删除向量数据失败: {e}")
         return False
@@ -248,50 +192,24 @@ def delete_user_vector_data(user_id: str) -> bool:
         bool: 是否删除成功
     """
     try:
-        if settings.VECTOR_DB_TYPE == "postgresql":
-            from app.retriever.pgvector_store import get_pgvector_store
+        from app.retriever.pgvector_store import get_pgvector_store
 
-            vector_store = get_pgvector_store()
+        vector_store = get_pgvector_store()
 
-            # 获取所有文档
-            all_docs = vector_store.get(include=["metadatas", "ids"])
-            if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
-                # 找到该用户的所有文档ID
-                doc_ids_to_delete = []
-                for idx, metadata in enumerate(all_docs["metadatas"]):
-                    if metadata.get("user_id") == user_id:
-                        doc_ids_to_delete.append(all_docs["ids"][idx])
+        # 获取所有文档
+        all_docs = vector_store.get(include=["metadatas", "ids"])
+        if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
+            # 找到该用户的所有文档ID
+            doc_ids_to_delete = []
+            for idx, metadata in enumerate(all_docs["metadatas"]):
+                if metadata.get("user_id") == user_id:
+                    doc_ids_to_delete.append(all_docs["ids"][idx])
 
-                # 删除这些文档
-                if doc_ids_to_delete:
-                    vector_store.delete(ids=doc_ids_to_delete)
-                    print(f"从向量数据库删除了用户 {user_id} 的 {len(doc_ids_to_delete)} 个文档片段")
-                    return True
-        else:
-            # Chroma
-            from langchain_chroma import Chroma
-            from app.retriever.embeddings_model import get_embeddings_model
-
-            vector_store = Chroma(
-                persist_directory=settings.CHROMA_PERSIST_DIR,
-                embedding_function=get_embeddings_model(),
-                collection_name=settings.CHROMA_COLLECTION_NAME
-            )
-
-            # 获取所有文档
-            all_docs = vector_store.get(include=["metadatas", "ids"])
-            if all_docs and all_docs.get("metadatas") and all_docs.get("ids"):
-                # 找到该用户的所有文档ID
-                doc_ids_to_delete = []
-                for idx, metadata in enumerate(all_docs["metadatas"]):
-                    if metadata.get("user_id") == user_id:
-                        doc_ids_to_delete.append(all_docs["ids"][idx])
-
-                # 删除这些文档
-                if doc_ids_to_delete:
-                    vector_store.delete(ids=doc_ids_to_delete)
-                    print(f"从 Chroma 向量数据库删除了用户 {user_id} 的 {len(doc_ids_to_delete)} 个文档片段")
-                    return True
+            # 删除这些文档
+            if doc_ids_to_delete:
+                vector_store.delete(ids=doc_ids_to_delete)
+                print(f"从向量数据库删除了用户 {user_id} 的 {len(doc_ids_to_delete)} 个文档片段")
+                return True
 
         return True
 

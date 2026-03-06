@@ -102,11 +102,10 @@ class VectorizationService:
                 content_hash = result['content_hash']
 
                 # 更新状态为处理中
-                await self._update_task_status(file_id, "processing", 0, len(chunks), 0)
+                await self._update_file_status(file_id, "processing")
 
                 # 生成摘要
                 summary = await self._generate_summary(chunks)
-                await self._update_task_status(file_id, "processing", 20, len(chunks), 0)
 
                 # 删除旧向量数据
                 await self._delete_old_vectors(file_id)
@@ -133,7 +132,7 @@ class VectorizationService:
                 )
 
                 # 标记完成
-                await self._update_task_status(file_id, "completed", 100, len(chunks), len(chunks))
+                await self._update_file_status(file_id, "completed")
 
                 logger.info(f"成功向量化 {filename}: {len(chunks)} 个片段")
 
@@ -149,7 +148,7 @@ class VectorizationService:
 
         except Exception as e:
             logger.error(f"向量化失败: {e}")
-            await self._update_task_status(file_id, "failed", 0, 0, 0, str(e))
+            await self._update_file_status(file_id, "failed")
             return VectorizationResult(
                 success=False,
                 chunk_count=0,
@@ -198,10 +197,7 @@ class VectorizationService:
             await asyncio.to_thread(vector_store.add_documents, batch)
 
             processed = min(i + batch_size, total)
-            progress = 20 + int((processed / total) * 70)  # 20-90%
-            await self._update_task_status(file_id, "processing", progress, total, processed)
-
-            logger.debug(f"向量化进度: {progress}% ({processed}/{total})")
+            logger.debug(f"向量化进度: {processed}/{total}")
 
     async def _save_summary(
         self,
@@ -270,16 +266,8 @@ class VectorizationService:
         except Exception as e:
             logger.warning(f"删除旧向量数据失败: {e}")
 
-    async def _update_task_status(
-        self,
-        file_id: str,
-        status: str,
-        progress: int,
-        total_chunks: int,
-        processed_chunks: int,
-        error_message: str = None
-    ):
-        """更新任务状态"""
+    async def _update_file_status(self, file_id: str, status: str):
+        """更新文件向量化状态"""
         import psycopg2
         from psycopg2.extras import RealDictCursor
 
@@ -288,17 +276,12 @@ class VectorizationService:
 
         try:
             cursor.execute("""
-                UPDATE vectorization_tasks
-                SET status = %s,
-                    progress = %s,
-                    total_chunks = %s,
-                    processed_chunks = %s,
-                    error_message = %s,
-                    updated_at = NOW()
-                WHERE file_id = %s
-            """, (status, progress, total_chunks, processed_chunks, error_message, file_id))
-
+                UPDATE user_files
+                SET vectorization_status = %s
+                WHERE id = %s
+            """, (status, file_id))
             conn.commit()
+            logger.debug(f"文件状态更新: file_id={file_id}, status={status}")
         finally:
             cursor.close()
             conn.close()
@@ -332,45 +315,9 @@ class VectorizationService:
             conn.close()
 
     async def create_task(self, file_id: str, user_id: str):
-        """创建向量化任务"""
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-
-        conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute("""
-                INSERT INTO vectorization_tasks (file_id, user_id, status)
-                VALUES (%s, %s, 'pending')
-                RETURNING id
-            """, (file_id, user_id))
-            conn.commit()
-            return cursor.fetchone()['id']
-        finally:
-            cursor.close()
-            conn.close()
-
-    async def get_task_status(self, file_id: str) -> Optional[Dict]:
-        """获取任务状态"""
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-
-        conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute("""
-                SELECT * FROM vectorization_tasks
-                WHERE file_id = %s
-                ORDER BY created_at DESC
-                LIMIT 1
-            """, (file_id,))
-            result = cursor.fetchone()
-            return dict(result) if result else None
-        finally:
-            cursor.close()
-            conn.close()
+        """创建向量化任务（设置文件状态为pending）"""
+        await self._update_file_status(file_id, "pending")
+        return file_id
 
 
 # 全局实例

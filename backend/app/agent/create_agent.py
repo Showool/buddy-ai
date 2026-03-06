@@ -5,16 +5,29 @@ from langchain.agents.middleware import ModelRequest, wrap_model_call, ModelResp
     ModelCallLimitMiddleware, ToolCallLimitMiddleware, LLMToolSelectorMiddleware
 from langchain.agents.structured_output import ToolStrategy, ProviderStrategy
 
-from agent.agent_context import Context
-from agent.middleware import personalized_prompt
-from agent.response_format import ResponseFormat
+from langchain.agents.middleware import before_model, after_model, AgentState, hook_config, dynamic_prompt, ModelRequest
+
 from llm.llm_factory import get_llm
-from memory.memory_factory import get_memory, get_store
 from prompt.prompt import SYSTEM_PROMPT
 from tools import get_tools
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.memory import InMemoryStore
 
 basic_model = get_llm("qwen-flash")
 advanced_model = get_llm("qwen-plus")
+
+class Context:
+    """Custom runtime context schema."""
+    user_id: str
+    user_name: str
+
+
+class ResponseFormat:
+    """Response schema for the agent."""
+    # A punny response (always required)
+    punny_response: str
+    # Any interesting information about the weather if available
+    weather_conditions: str | None = None
 
 
 @wrap_model_call
@@ -32,14 +45,19 @@ def dynamic_model_selection(request: ModelRequest, handler) -> ModelResponse:
     return handler(request.override(model=model))
 
 
+@dynamic_prompt
+def personalized_prompt(request: ModelRequest) -> str:
+    user_name = request.runtime.context.user_name
+    return f"You are a helpful assistant. Address the user as {user_name}."
+
 agent = create_agent(
     model=basic_model,
     system_prompt=SYSTEM_PROMPT,
     tools=get_tools(),
     context_schema=Context,
     response_format=ToolStrategy(ResponseFormat),
-    checkpointer=get_memory(),
-    store=get_store(),
+    checkpointer=InMemorySaver(),
+    store=InMemoryStore(),
     middleware=[
         personalized_prompt,
         dynamic_model_selection,

@@ -9,7 +9,7 @@ export interface FileUploadResponse {
   status: string
   vectorized: boolean
   upload_time: string
-  task_id?: string
+  task_id?: string  // 已弃用，保留用于向后兼容
 }
 
 export interface VectorizationTaskStatus {

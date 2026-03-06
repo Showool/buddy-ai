@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建必要的目录
-RUN mkdir -p uploads chroma_db
+RUN mkdir -p uploads
 
 # 暴露端口
 EXPOSE 8000
