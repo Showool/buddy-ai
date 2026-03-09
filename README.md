@@ -12,13 +12,72 @@
 
 ![LangGraph 工作流程图](docs/langgraph_workflow.png)
 
+### 工作流程详解
+
+系统采用 LangGraph 构建有状态的智能体工作流，包含以下核心节点：
+
+```
+START
+  ↓
+routing_node (智能路由: 判断需要检索记忆和/或知识库)
+  ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    并行路径判断                              │
+├─────────────────────────────────────────────────────────────┤
+│  parallel_both  →  memory_retrieval  →  retrieval_node      │
+│  memory_only    →  memory_retrieval  →  generate_response   │
+│  rag_only       →  retrieval_node                            │
+│  direct_answer  →  generate_response                         │
+└─────────────────────────────────────────────────────────────┘
+                          ↓
+                   grade_documents (文档相关性评分)
+                          ↓
+         ┌────────────────┴────────────────┐
+         │ 相关                           │ 无关
+         ↓                                 ↓
+    generate_response                  rewrite_question
+         │                                 │
+         │                                 │
+         └─────────────────────────────────┘
+                          ↓
+              [有工具调用?] → tool_node → END
+                      └─ 无 → END
+```
+
+#### 节点说明
+
+| 节点 | 文件 | 功能 |
+|------|------|------|
+| `routing_node` | `agent/routing_node.py` | 使用 LLM 智能判断查询类型，决定是否需要检索记忆和/或 RAG |
+| `memory_retrieval` | `agent/memory_node.py` | 检索用户长期记忆（PostgreSQL Store） |
+| `retrieval_node` | `agent/retrieval_node.py` | 执行混合检索（向量+全文搜索） |
+| `grade_documents` | `agent/node.py` | LLM 评估检索到的文档是否相关 |
+| `rewrite_question` | `agent/node.py` | 重写问题以改善检索结果（最多3次迭代） |
+| `generate_response` | `agent/node.py` | 生成最终响应并绑定工具 |
+| `tool_node` | LangGraph 内置 | 执行工具调用（tavily_search/save_memory） |
+
+#### AgentState 状态
+
+```python
+class AgentState(MessagesState):
+    loop_step: int              # 循环计数器（防止无限重写，最大3次）
+    query_history: List[str]    # 查询历史（检测重复查询）
+    retrieved_documents: List[Document]  # 检索到的文档
+    retrieval_metadata: ...      # 检索元信息
+    should_retrieve: bool        # 是否需要检索
+    user_memories: List[Dict]    # 用户记忆
+    retrieval_needed: Dict       # {"memory": bool, "rag": bool}
+    routing_decision: str        # 路由决策
+    question: str                # 当前问题
+```
+
 ## 项目架构
 
 - **后端**: FastAPI + LangGraph
 - **前端**: Vue3 + TypeScript + Pinia + Element Plus
 - **LLM**: 阿里云 DashScope (Qwen 模型)
 - **向量库**: PostgreSQL+pgvector
-- **记忆**: PostgreSQL
+- **记忆**: PostgreSQL (LangGraph PostgresStore)
 - **会话**: Redis (Checkpointing)
 - **检索**: 混合检索（向量 + 全文搜索 + RRF融合）
 - **包管理**: pip + conda
@@ -37,18 +96,85 @@
 
 ## 技术亮点
 
+### LangGraph 智能体架构
+
+- **状态管理**: 基于 `MessagesState` 的状态持久化，支持多轮对话上下文
+- **条件路由**: LLM 智能判断查询类型，动态选择执行路径（记忆检索/RAG/直接回答）
+- **自我改进**: 文档相关性评分 + 问题重写机制，最多 3 次迭代优化检索结果
+- **重复检测**: 查询历史记录 + 相似度计算，防止陷入重写循环
+- **流式输出**: WebSocket 实时推送 Agent 执行步骤，提供完整的执行过程可视化
+
 ### 混合检索架构
 
-- **向量检索**: 基于 pgvector 的语义相似度搜索
-- **全文搜索**: PostgreSQL tsvector 的关键词匹配
+```mermaid
+graph LR
+    Query[用户查询] --> Vector[向量检索<br/>PostgreSQL+pgvector]
+    Query --> Fulltext[全文搜索<br/>PostgreSQL tsvector]
+    Vector --> RRF[RRF 融合<br/>倒数排名融合]
+    Fulltext --> RRF
+    RRF --> Result[最终结果]
+```
+
+- **向量检索**: 基于 pgvector 的语义相似度搜索，使用 DashScope text-embedding-v4 模型（1024 维）
+- **全文搜索**: PostgreSQL `ts_rank` 和 `plainto_tsquery` 进行关键词匹配
 - **RRF 融合**: Reciprocal Rank Fusion 算法合并结果
+  ```
+  RRF 公式: score = 1.0 / (rank_k + i + 1)
+  其中 rank_k = 60（超参数），i 是排名位置
+  ```
+- **检索编排**: `RetrievalOrchestrator` 统一管理向量检索、全文搜索和结果融合
 
 ### 记忆系统
 
-- **短期记忆**: Redis Checkpointing 保存对话上下文
-- **长期记忆**: PostgreSQL Store 保存用户偏好和历史
-- **智能保存**: 自动判断对话内容是否值得保存
-- **记忆检索**: 基于查询的相关记忆检索
+**双层记忆架构：**
+
+1. **短期记忆**: Redis Checkpointing
+   - 保存对话状态和 Agent 执行历史
+   - 支持会话恢复（通过 thread_id）
+   - LangGraph 原生支持
+
+2. **长期记忆**: PostgreSQL Store (LangGraph PostgresStore)
+   - 保存用户偏好、历史对话、重要约定
+   - 支持向量化检索（基于 embedding 索引）
+   - 通过 `memory_retrieval_node` 节点访问
+
+**记忆保存策略：**
+- LLM 在 `generate_response` 节点自动判断是否值得保存
+- 只保存有价值的对话内容（避免无关信息污染）
+- 使用 `save_conversation_memory` 工具进行存储
+
+### WebSocket 实时通信
+
+**连接管理：**
+- `ConnectionManager` 管理活跃连接
+- 每个用户独立的 graph 实例缓存
+- 支持心跳保持（ping/pong）
+
+**消息类型：**
+
+| 类型 | 用途 |
+|------|------|
+| `connected` | 连接成功确认 |
+| `user_message` | 用户发送消息 |
+| `agent_step` | Agent 执行步骤通知（流式） |
+| `agent_complete` | Agent 执行完成（含最终答案） |
+| `error` | 错误消息 |
+| `ping/pong` | 心跳保持连接 |
+
+**消息流：**
+```
+WebSocket 连接
+     ↓
+接收消息: {"type": "user_message", "content": "..."}
+     ↓
+handle_user_message()
+     ↓
+graph.stream() 获取执行流
+     ↓
+流式发送 AgentStepMessage（每个节点执行）
+     ↓
+发送 AgentCompleteMessage（最终答案）
+```
 
 ### 文件处理
 
@@ -111,13 +237,7 @@ cd backend
 cp .env.example .env
 ```
 
-2. 初始化数据库（首次运行）
-```bash
-cd backend
-python init_db.py
-```
-
-3. 编辑 `.env` 文件，填入必要配置
+2. 编辑 `.env` 文件，填入必要配置
 ```env
 # 阿里云 API 配置
 DASHSCOPE_API_KEY=your_dashscope_api_key
@@ -130,7 +250,7 @@ REDIS_URL=redis://localhost:6379/0
 POSTGRESQL_URL=postgresql://user:pass@localhost:5432/buddy-ai
 
 # 向量数据库配置（PostgreSQL+pgvector）
-PGVECTOR_COLLECTION_NAME=buddy_kb
+PGVECTOR_COLLECTION_NAME=buddy_ai_docs
 
 # 文件上传配置
 UPLOAD_DIR=./uploads
@@ -226,42 +346,40 @@ buddy-ai/
 │   ├── app/
 │   │   ├── main.py              # FastAPI 应用入口
 │   │   ├── config.py            # 配置管理（Pydantic Settings）
-│   │   ├── init_db.py           # 数据库初始化脚本
 │   │   ├── api/v1/              # API 路由
 │   │   │   ├── chat.py          # WebSocket 聊天
 │   │   │   ├── files.py         # 文件上传与管理
 │   │   │   ├── sessions.py      # 会话管理
 │   │   │   └── memory.py        # 记忆管理
-│   │   ├── agent/               # LangGraph Agent
-│   │   │   ├── graph.py         # Agent 工作流图
-│   │   │   ├── node.py          # Agent 节点
-│   │   │   ├── state.py         # Agent 状态定义
-│   │   │   ├── retrieval_node.py # 检索节点
-│   │   │   ├── rag_agent.py     # RAG Agent
-│   │   │   └── agent_context.py # Agent 上下文
-│   │   ├── tools/               # 工具
-│   │   │   ├── system_tool.py   # 系统工具
-│   │   │   ├── user_tool.py     # 用户工具（记忆相关）
+│   │   ├── agent/               # LangGraph Agent 核心模块
+│   │   │   ├── graph.py         # Agent 工作流图（节点定义、边定义）
+│   │   │   ├── node.py          # 核心节点（generate_response, rewrite_question, grade_documents）
+│   │   │   ├── state.py         # Agent 状态定义（AgentState, GradeDocuments）
+│   │   │   ├── routing_node.py  # 智能路由节点（判断需要检索记忆和/或 RAG）
+│   │   │   ├── memory_node.py   # 记忆检索节点
+│   │   │   ├── retrieval_node.py # 检索节点（混合检索）
+│   │   │   └── workflow_diagram.py # 工作流程图生成
+│   │   ├── tools/               # 工具定义
+│   │   │   ├── system_tool.py   # 系统工具（clear_conversation, update_user_name, retrieve_context）
+│   │   │   ├── user_tool.py     # 用户工具（save_conversation_memory）
 │   │   │   ├── web_search_tool.py # Tavily 网络搜索
 │   │   │   └── __init__.py
-│   │   ├── services/            # 业务服务层（新增）
-│   │   │   ├── fulltext_search_service.py  # PostgreSQL 全文搜索
-│   │   │   ├── qwen_rerank_service.py      # Qwen Rerank 服务
-│   │   │   ├── retrieval_orchestrator.py   # 混合检索编排
+│   │   ├── services/            # 业务服务层
+│   │   │   ├── fulltext_search_service.py  # PostgreSQL 全文搜索（ts_rank）
+│   │   │   ├── retrieval_orchestrator.py   # 混合检索编排（向量+全文+RRF）
 │   │   │   ├── vectorization_service.py    # 异步向量化服务
 │   │   │   ├── user_file_service.py        # 用户文件管理
 │   │   │   └── pgvector_singleton.py       # pgvector 单例
 │   │   ├── retriever/           # 检索模块
-│   │   │   ├── vector_store.py  # 向量存储抽象层
-│   │   │   ├── pgvector_store.py # PostgreSQL 向量存储
+│   │   │   ├── pgvector_store.py # PostgreSQL 向量存储（pgvector）
 │   │   │   ├── get_retriever.py # 检索器配置
 │   │   │   ├── vectorize_files.py # 文件向量化
-│   │   │   ├── embeddings_model.py # DashScope 嵌入模型
-│   │   │   └── get_db.py        # 数据库连接
+│   │   │   └── embeddings_model.py # DashScope 嵌入模型（text-embedding-v4）
 │   │   ├── memory/              # 记忆管理
-│   │   │   └── memory_factory.py # 记忆存储工厂
+│   │   │   ├── memory_service.py    # 记忆服务（PostgreSQL Store）
+│   │   │   └── memory_schema.py     # 记忆数据模型
 │   │   ├── llm/                 # LLM 工厂
-│   │   │   └── llm_factory.py   # Qwen 模型工厂
+│   │   │   └── llm_factory.py   # Qwen 模型工厂（DashScope OpenAI API）
 │   │   ├── prompt/              # 提示词
 │   │   │   └── prompt.py        # 系统提示词模板
 │   │   ├── utils/               # 工具函数
@@ -270,11 +388,9 @@ buddy-ai/
 │   │   └── models/              # Pydantic 模型
 │   │       ├── chat.py          # 聊天消息模型
 │   │       ├── session.py       # 会话模型
-│   │       ├── memory.py        # 记忆模型
 │   │       ├── file.py          # 文件模型
 │   │       └── user_file.py     # 用户文件模型
 │   ├── requirements.txt         # Python 依赖
-│   ├── .env.example             # 环境变量示例
 │   └── .env                     # 环境变量（需自行创建）
 ├── frontend/                    # Vue3 前端
 │   ├── src/
@@ -316,33 +432,58 @@ buddy-ai/
 
 ## API 文档
 
-启动后端后访问 http://localhost:8000/docs 查看 Swagger API 文档。
+启动后端后访问 http://localhost:8000/docs 查看 Swagger API 文档（仅在 DEBUG 模式下可用）。
 
 ### WebSocket 聊天
 
-```
-ws://localhost:8000/api/v1/chat/ws/{user_id}
-```
+**端点**: `ws://localhost:8000/api/v1/chat/ws/{user_id}?thread_id=可选的会话ID`
 
-发送消息:
+**发送消息**:
 ```json
 {
   "type": "user_message",
   "content": "你好",
-  "thread_id": "可选的会话ID"
+  "thread_id": "可选的会话ID（与URL参数二选一）"
 }
 ```
 
-响应格式:
+**心跳保持**:
+```json
+{"type": "ping"}
+```
+
+**响应消息类型**:
+
+| 类型 | 说明 |
+|------|------|
+| `connected` | 连接成功 |
+| `pong` | 心跳响应 |
+| `agent_step` | Agent 执行步骤（流式） |
+| `agent_complete` | Agent 执行完成，包含最终答案 |
+| `error` | 错误消息 |
+
+**agent_step 格式**:
 ```json
 {
-  "type": "assistant_message",
-  "content": "你好！我是你的智能助手...",
-  "metadata": {
-    "retrieval_strategy": "hybrid",
-    "retrieval_time_ms": 150,
-    "sources": ["doc1.pdf", "doc2.docx"]
-  }
+  "type": "agent_step",
+  "node": "agent_step",
+  "message_type": "AIMessage",
+  "content": "...",
+  "tool_calls": [
+    {
+      "name": "tavily_search",
+      "args": {"query": "..."}
+    }
+  ]
+}
+```
+
+**agent_complete 格式**:
+```json
+{
+  "type": "agent_complete",
+  "final_answer": "这是最终答案...",
+  "thread_id": "会话ID"
 }
 ```
 
@@ -407,30 +548,50 @@ pip install -r requirements.txt
 
 ### 核心模块说明
 
+#### Agent 层 ([app/agent/](backend/app/agent/))
+
+| 文件 | 功能 | 说明 |
+|------|------|------|
+| `graph.py` | Agent 工作流图 | 定义节点、边和条件路由，构建 LangGraph StateGraph |
+| `state.py` | Agent 状态定义 | `AgentState` 继承 `MessagesState`，包含循环控制、查询历史等 |
+| `routing_node.py` | 智能路由节点 | LLM 判断是否需要检索记忆和/或 RAG |
+| `memory_node.py` | 记忆检索节点 | 使用 PostgreSQL Store 检索用户长期记忆 |
+| `retrieval_node.py` | 检索节点 | 执行混合检索，支持快速规则过滤 |
+| `node.py` | 核心节点 | `generate_response`、`rewrite_question`、`grade_documents` |
+
 #### 工具层 ([app/tools/](backend/app/tools/))
 
 | 工具 | 功能 | 说明 |
 |------|------|------|
-| `system_tool.py` | 系统工具 | 清空对话、更新用户名、检索上下文 |
-| `user_tool.py` | 用户工具 | 天气查询、记忆检索/保存、对话记忆 |
-| `web_search_tool.py` | 网络搜索 | Tavily API 实时搜索 |
+| `system_tool.py` | 系统工具 | 清空对话、更新用户名、检索上下文、retriever_tool |
+| `user_tool.py` | 用户工具 | 天气查询、记忆检索/保存、对话记忆保存 |
+| `web_search_tool.py` | 网络搜索 | Tavily API 实时搜索（最多 3 个结果） |
 
 #### 服务层 ([app/services/](backend/app/services/))
 
 | 服务 | 功能 | 关键方法 |
 |------|------|----------|
-| `fulltext_search_service.py` | PostgreSQL 全文搜索 | `search(query, user_id, k)` |
-| `qwen_rerank_service.py` | Qwen Rerank 结果重排序 | `rerank(query, documents, top_k)` |
-| `retrieval_orchestrator.py` | 混合检索编排 | `retrieve()` 整合向量+全文+RRF+Rerank |
+| `fulltext_search_service.py` | PostgreSQL 全文搜索 | `search(query, user_id, k)` 使用 ts_rank 排序 |
+| `retrieval_orchestrator.py` | 混合检索编排 | `retrieve()` 整合向量+全文+RRF 融合 |
 | `vectorization_service.py` | 异步向量化服务 | `vectorize_file()` 带进度追踪 |
 | `user_file_service.py` | 用户文件管理 | `save_file()`, `delete_file()` |
+| `pgvector_singleton.py` | pgvector 单例 | `get_vector_store()` 获取向量存储实例 |
 
 #### 检索流程
 
-1. **并行检索**: 向量检索 + 全文搜索同时执行
-2. **RRF 融合**: 合并两种结果，使用 Reciprocal Rank Fusion 算法
-3. **智能 Rerank**: 结果数量超过阈值时触发 Qwen Rerank
-4. **返回结果**: 返回 Top-K 最相关文档
+```
+1. routing_node 判断是否需要检索
+         ↓
+2. retrieval_node 执行混合检索
+   ├─ 向量检索: similarity_search_with_score()
+   ├─ 全文搜索: PostgreSQL ts_rank 排序
+   └─ RRF 融合: 合并两种结果
+         ↓
+3. grade_documents 评估文档相关性（LLM 评分）
+         ↓
+4. 相关 → generate_response
+   不相关 → rewrite_question → 回到步骤 2（最多 3 次）
+```
 
 #### 向量化流程
 

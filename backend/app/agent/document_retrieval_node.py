@@ -1,5 +1,5 @@
 """
-检索节点 - LangGraph 节点级检索集成（同步版本）
+文档检索节点
 """
 import logging
 from typing import Literal
@@ -21,7 +21,7 @@ class RAGDecision(BaseModel):
 QUICK_SKIP_KEYWORDS = ["天气", "新闻", "汇率", "股价", "实时", "今日", "昨天"]
 
 
-def retrieval_node(
+def document_retrieval_node(
     state: AgentState,
     config: RunnableConfig
 ) -> dict:
