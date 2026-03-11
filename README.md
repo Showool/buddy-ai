@@ -12,63 +12,28 @@
 
 ![LangGraph 工作流程图](docs/langgraph_workflow.png)
 
-### 工作流程详解
-
-系统采用 LangGraph 构建有状态的智能体工作流，包含以下核心节点：
-
-```
-START
-  ↓
-routing_node (智能路由: 判断需要检索记忆和/或知识库)
-  ↓
-┌─────────────────────────────────────────────────────────────┐
-│                    并行路径判断                              │
-├─────────────────────────────────────────────────────────────┤
-│  parallel_both  →  memory_retrieval  →  retrieval_node      │
-│  memory_only    →  memory_retrieval  →  generate_response   │
-│  rag_only       →  retrieval_node                            │
-│  direct_answer  →  generate_response                         │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-                   grade_documents (文档相关性评分)
-                          ↓
-         ┌────────────────┴────────────────┐
-         │ 相关                           │ 无关
-         ↓                                 ↓
-    generate_response                  rewrite_question
-         │                                 │
-         │                                 │
-         └─────────────────────────────────┘
-                          ↓
-              [有工具调用?] → tool_node → END
-                      └─ 无 → END
-```
 
 #### 节点说明
 
 | 节点 | 文件 | 功能 |
 |------|------|------|
-| `routing_node` | `agent/routing_node.py` | 使用 LLM 智能判断查询类型，决定是否需要检索记忆和/或 RAG |
-| `memory_retrieval` | `agent/memory_node.py` | 检索用户长期记忆（PostgreSQL Store） |
-| `retrieval_node` | `agent/retrieval_node.py` | 执行混合检索（向量+全文搜索） |
-| `grade_documents` | `agent/node.py` | LLM 评估检索到的文档是否相关 |
-| `rewrite_question` | `agent/node.py` | 重写问题以改善检索结果（最多3次迭代） |
-| `generate_response` | `agent/node.py` | 生成最终响应并绑定工具 |
-| `tool_node` | LangGraph 内置 | 执行工具调用（tavily_search/save_memory） |
+| `route` | `parallel_routing_node.py` | 使用 LLM 判断查询类型，决定并行检索哪些来源（记忆/文档） |
+| `memory_retrieval` | `memory_retrieval_node.py` | 从 PostgreSQL Store 检索用户长期记忆 |
+| `document_retrieval` | `document_retrieval_node.py` | 执行混合检索（向量+全文搜索） |
+| `grade_documents` | `grade_documents.py` | LLM 评估检索到的文档是否相关 |
+| `rewrite_question` | `rewrite_question_node.py` | 智能重写问题（关键词提取/简化策略，最多3次迭代） |
+| `generate_response` | `generate_response_node.py` | 根据并行检索结果生成最终响应 |
+| `tool_node` | LangGraph 内置 | 执行工具调用（tavily_search/save_conversation_memory） |
 
 #### AgentState 状态
 
 ```python
 class AgentState(MessagesState):
-    loop_step: int              # 循环计数器（防止无限重写，最大3次）
-    query_history: List[str]    # 查询历史（检测重复查询）
-    retrieved_documents: List[Document]  # 检索到的文档
-    retrieval_metadata: ...      # 检索元信息
-    should_retrieve: bool        # 是否需要检索
-    user_memories: List[Dict]    # 用户记忆
-    retrieval_needed: Dict       # {"memory": bool, "rag": bool}
-    routing_decision: str        # 路由决策
-    question: str                # 当前问题
+    parallel_results: List[Dict]    # 并行检索结果（memory + documents）
+    loop_step: int                  # 循环计数器（防止无限重写，最大3次）
+    routing_decision: Optional[str] # 路由决策
+    classifications: List[Dict]     # 分类结果（用于并行路由）
+    question: str                   # 当前问题
 ```
 
 ## 项目架构
@@ -270,12 +235,6 @@ CREATE DATABASE buddy_ai;
 
 \c buddy_ai
 
--- 表将在 init_db.py 中创建，包括：
--- - langchain_pg_collection (向量集合)
--- - langchain_pg_embedding (向量数据)
--- - user_files (用户文件)
--- - vectorization_tasks (向量化任务)
--- - store_postgres (LangGraph 记忆存储)
 ```
 
 ### 运行
@@ -352,12 +311,14 @@ buddy-ai/
 │   │   │   ├── sessions.py      # 会话管理
 │   │   │   └── memory.py        # 记忆管理
 │   │   ├── agent/               # LangGraph Agent 核心模块
-│   │   │   ├── graph.py         # Agent 工作流图（节点定义、边定义）
-│   │   │   ├── node.py          # 核心节点（generate_response, rewrite_question, grade_documents）
+│   │   │   ├── graph.py         # Agent 工作流图（并行节点定义、边定义）
 │   │   │   ├── state.py         # Agent 状态定义（AgentState, GradeDocuments）
-│   │   │   ├── routing_node.py  # 智能路由节点（判断需要检索记忆和/或 RAG）
-│   │   │   ├── memory_node.py   # 记忆检索节点
-│   │   │   ├── retrieval_node.py # 检索节点（混合检索）
+│   │   │   ├── parallel_routing_node.py # 并行路由节点（判断需要检索记忆和/或文档）
+│   │   │   ├── memory_retrieval_node.py # 记忆检索节点
+│   │   │   ├── document_retrieval_node.py # 文档检索节点（混合检索）
+│   │   │   ├── grade_documents.py # 文档评分节点
+│   │   │   ├── rewrite_question_node.py # 问题重写节点（智能重写策略）
+│   │   │   ├── generate_response_node.py # 响应生成节点
 │   │   │   └── workflow_diagram.py # 工作流程图生成
 │   │   ├── tools/               # 工具定义
 │   │   │   ├── system_tool.py   # 系统工具（clear_conversation, update_user_name, retrieve_context）
@@ -552,12 +513,14 @@ pip install -r requirements.txt
 
 | 文件 | 功能 | 说明 |
 |------|------|------|
-| `graph.py` | Agent 工作流图 | 定义节点、边和条件路由，构建 LangGraph StateGraph |
-| `state.py` | Agent 状态定义 | `AgentState` 继承 `MessagesState`，包含循环控制、查询历史等 |
-| `routing_node.py` | 智能路由节点 | LLM 判断是否需要检索记忆和/或 RAG |
-| `memory_node.py` | 记忆检索节点 | 使用 PostgreSQL Store 检索用户长期记忆 |
-| `retrieval_node.py` | 检索节点 | 执行混合检索，支持快速规则过滤 |
-| `node.py` | 核心节点 | `generate_response`、`rewrite_question`、`grade_documents` |
+| `graph.py` | Agent 工作流图 | 定义并行节点、边和条件路由，构建 LangGraph StateGraph |
+| `state.py` | Agent 状态定义 | `AgentState` 继承 `MessagesState`，包含并行结果、循环控制等 |
+| `parallel_routing_node.py` | 并行路由节点 | LLM 判断需要并行检索哪些来源（记忆/文档） |
+| `memory_retrieval_node.py` | 记忆检索节点 | 使用 PostgreSQL Store 检索用户长期记忆 |
+| `document_retrieval_node.py` | 文档检索节点 | 执行混合检索 |
+| `grade_documents.py` | 文档评分节点 | LLM 评估检索文档相关性 |
+| `rewrite_question_node.py` | 问题重写节点 | 智能重写问题（关键词提取/简化策略） |
+| `generate_response_node.py` | 响应生成节点 | 根据并行检索结果生成最终响应 |
 
 #### 工具层 ([app/tools/](backend/app/tools/))
 
@@ -580,17 +543,20 @@ pip install -r requirements.txt
 #### 检索流程
 
 ```
-1. routing_node 判断是否需要检索
+1. parallel_routing_node 判断需要并行检索哪些来源
          ↓
-2. retrieval_node 执行混合检索
-   ├─ 向量检索: similarity_search_with_score()
-   ├─ 全文搜索: PostgreSQL ts_rank 排序
-   └─ RRF 融合: 合并两种结果
+   ┌────┴────┐
+   ↓         ↓
+记忆检索    文档检索
+   │         │
+   └────┬────┘
+        ↓
+2. 生成响应节点整合并行结果
          ↓
-3. grade_documents 评估文档相关性（LLM 评分）
+3. grade_documents 评估文档相关性（如检索了文档）
          ↓
 4. 相关 → generate_response
-   不相关 → rewrite_question → 回到步骤 2（最多 3 次）
+   不相关 → rewrite_question → document_retrieval（循环，最多3次）
 ```
 
 #### 向量化流程
@@ -598,7 +564,7 @@ pip install -r requirements.txt
 1. 文件上传到 PostgreSQL BLOB
 2. 创建向量化任务记录
 3. 异步处理：文档加载 → 智能切分 → 向量化 → 摘要生成
-4. 实时进度更新（每 10% 一次）
+4. 实时进度更新
 5. 增量更新：基于内容哈希判断是否需要重新向量化
 
 ### 前端开发
@@ -642,35 +608,6 @@ PGVECTOR_COLLECTION_NAME=buddy_kb
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-运行 `python init_db.py` 自动创建所需表结构。
-
-## 架构设计文档
-
-详细的架构设计请参考：
-
-- [RAG 架构设计文档](docs/RAG-Plan.md) - 混合检索、重排序、向量化流程
-- [项目规划文档](docs/plan.md) - 功能规划和实现路线图
-
-## 常见问题
-
-### 向量化进度卡住
-
-检查 Redis 连接是否正常：
-```bash
-redis-cli ping
-# 应返回 PONG
-```
-
-### 检索结果不准确
-
-1. 确认 pgvector 扩展已安装
-2. 检查文件是否成功向量化
-3. 尝试调整 `RERANK_THRESHOLD` 配置
-
-### 内存占用过高
-
-- 减小 `CHUNK_SIZE` 和 `CHUNK_OVERLAP`
-- 限制并发向量化任务数量
 
 ## 贡献指南
 

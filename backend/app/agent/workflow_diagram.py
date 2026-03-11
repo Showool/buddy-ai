@@ -8,7 +8,7 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
-def generate_workflow_diagram() -> str:
+def generate_workflow_diagram():
     """
     生成 LangGraph 工作流程图 PNG 图片
 
@@ -28,8 +28,6 @@ def generate_workflow_diagram() -> str:
         # 生成 PNG 图片
         output_file = docs_dir / "langgraph_workflow.png"
         _generate_png_from_graph(compiled_graph, output_file)
-
-        return str(output_file)
 
     except Exception as e:
         logger.error(f"❌ 生成流程图失败: {e}")
@@ -55,7 +53,7 @@ def _generate_png_from_graph(compiled_graph, output_file: Path):
         with open(output_file, "wb") as f:
             f.write(png_data)
 
-        logger.info(f"✅ PNG 流程图已生成: {output_file}")
+        logger.info(f"✅ LangGraph 流程图已生成: {output_file}")
 
     except Exception as e:
         logger.warning(f"⚠️  PNG 生成失败: {e}")

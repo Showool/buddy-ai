@@ -45,9 +45,8 @@ async def lifespan(app: FastAPI):
         # 生成 LangGraph 工作流程图
         try:
             from app.agent.workflow_diagram import generate_workflow_diagram
-            diagram_path = generate_workflow_diagram()
-            if diagram_path:
-                logger.info(f"✅ LangGraph 流程图已生成: {diagram_path}")
+            generate_workflow_diagram()
+
         except Exception as e:
             logger.warning(f"⚠️  生成流程图失败（可忽略）: {e}")
 

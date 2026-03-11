@@ -1,170 +1,175 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+此文件为 Claude Code (claude.ai/code) 提供本项目代码工作的指导。
 
-## Project Overview
+## 语言要求
 
-Buddy-AI is a Chinese-language intelligent Q&A system built with LangGraph, implementing a RAG (Retrieval Augmented Generation) architecture. The project consists of:
+**重要：请始终使用中文回答用户的问题和解释。** 本项目是一个中文智能问答系统，所有与用户的沟通应使用中文。
 
-1. **Backend API** - FastAPI with LangGraph agent
-2. **Frontend UI** - Vue3 + TypeScript + Pinia
+## 项目概述
 
-## Common Commands
+Buddy-AI 是一个基于 LangGraph 构建的中文智能问答系统，采用并行 RAG（检索增强生成）架构。项目包括：
 
-### Backend Development (FastAPI)
+1. **后端 API** - FastAPI + LangGraph 并行智能体
+2. **前端 UI** - Vue3 + TypeScript + Pinia
 
-**Package Management (pip + conda)**:
+## 常用命令
+
+### 后端开发 (FastAPI)
+
+**包管理 (pip + conda)**:
 ```bash
 cd backend
 
-# Make sure conda environment is activated
+# 确保已激活 conda 环境
 conda activate buddy-ai
 
-# Install dependencies from requirements.txt
+# 从 requirements.txt 安装依赖
 pip install -r requirements.txt
 
-# Install new dependency
+# 安装新依赖
 pip install package_name
 
-# Check installed packages
+# 查看已安装包
 pip list
 ```
 
-**Running the Server**:
+**运行服务器**:
 ```bash
 cd backend
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Health Check**: `curl http://localhost:8000/health`
+**健康检查**: `curl http://localhost:8000/health`
 
-**API Docs**: http://localhost:8000/docs (DEBUG mode only)
+**API 文档**: http://localhost:8000/docs (仅 DEBUG 模式)
 
-### Frontend Development (Vue3)
+### 前端开发 (Vue3)
 
 ```bash
 cd frontend
 
-# Install dependencies
+# 安装依赖
 npm install
 
-# Start dev server (runs on http://localhost:3000)
+# 启动开发服务器 (运行在 http://localhost:3000)
 npm run dev
 
-# Build for production
+# 构建生产版本
 npm run build
 ```
 
-### Configuration
+### 配置
 
-Create or edit `backend/.env`:
-- `DASHSCOPE_API_KEY` - Aliyun DashScope API key (for Qwen LLM and embeddings)
-- `TAVILY_API_KEY` - Tavily search API key
-- `REDIS_URL` - Redis connection string for checkpointing
-- `POSTGRESQL_URL` - PostgreSQL connection string for memory and vector storage (requires pgvector extension)
+创建或编辑 `backend/.env`:
+- `DASHSCOPE_API_KEY` - 阿里云 DashScope API 密钥（用于 Qwen LLM 和 embeddings）
+- `TAVILY_API_KEY` - Tavily 搜索 API 密钥
+- `REDIS_URL` - Redis 连接字符串（用于 checkpointing）
+- `POSTGRESQL_URL` - PostgreSQL 连接字符串（用于记忆和向量存储，需要 pgvector 扩展）
 
-## Architecture
+## 架构
 
-### Backend (FastAPI + LangGraph)
+### 后端 (FastAPI + LangGraph)
 
-**Entry Point**: [backend/app/main.py](backend/app/main.py)
+**入口文件**: [backend/app/main.py](backend/app/main.py)
 
-The backend implements a FastAPI application with WebSocket support for real-time chat.
+后端实现了一个带有 WebSocket 支持的 FastAPI 应用，用于实时聊天。
 
-**Agent Framework (LangGraph)**:
+**智能体框架 (LangGraph)**:
 
-The core agent workflow is defined in [backend/app/agent/graph.py](backend/app/agent/graph.py):
+核心智能体工作流定义在 [backend/app/agent/graph.py](backend/app/agent/graph.py)，采用**并行检索架构**。
 
-**State Definition** ([backend/app/agent/state.py](backend/app/agent/state.py)):
-- `AgentState` extends LangGraph's `MessagesState` with a `loop_step` counter
-- `GradeDocuments` is a Pydantic model for binary relevance scoring
+**状态定义** ([backend/app/agent/state.py](backend/app/agent/state.py)):
+- `AgentState` 继承 LangGraph 的 `MessagesState`，包含并行结果、循环控制等字段
+- `GradeDocuments` 是一个 Pydantic 模型，用于二进制相关性评分
 
-**Node Flow**:
-1. `generate_query_or_respond` ([backend/app/agent/node.py:13](backend/app/agent/node.py#L13)) - Decides whether to use retrieval tools or respond directly
-2. `tool_node` - Executes tools via LangGraph's ToolNode
-3. `grade_documents` ([backend/app/agent/node.py:71](backend/app/agent/node.py#L71)) - Evaluates retrieved document relevance, routes to `generate_answer` or `rewrite_question`
-4. `rewrite_question` ([backend/app/agent/node.py:34](backend/app/agent/node.py#L34)) - Rewrites question if documents aren't relevant (max 3 iterations)
-5. `generate_answer` ([backend/app/agent/node.py:61](backend/app/agent/node.py#L61)) - Generates final answer using retrieved context
+**节点流程**（并行架构）:
+1. `route` ([backend/app/agent/parallel_routing_node.py](backend/app/agent/parallel_routing_node.py)) - 使用 LLM 判断需要并行检索哪些来源（记忆/文档）
+2. `memory_retrieval` ([backend/app/agent/memory_retrieval_node.py](backend/app/agent/memory_retrieval_node.py)) - 从 PostgreSQL Store 检索用户长期记忆
+3. `document_retrieval` ([backend/app/agent/document_retrieval_node.py](backend/app/agent/document_retrieval_node.py)) - 执行混合检索（向量+全文搜索）
+4. `grade_documents` ([backend/app/agent/grade_documents.py](backend/app/agent/grade_documents.py)) - LLM 评估检索到的文档相关性
+5. `rewrite_question` ([backend/app/agent/rewrite_question_node.py](backend/app/agent/rewrite_question_node.py)) - 智能重写问题（关键词提取/简化策略，最多3次迭代）
+6. `generate_response` ([backend/app/agent/generate_response_node.py](backend/app/agent/generate_response_node.py)) - 根据并行检索结果生成最终响应
 
-**Tools System** ([backend/app/tools/](backend/app/tools/)):
-- **System Tools** ([system_tool.py](backend/app/tools/system_tool.py)): `clear_conversation`, `update_user_name`, `retrieve_context`, `retriever_tool`
-- **User Tools** ([user_tool.py](backend/app/tools/user_tool.py)): `get_weather_for_location`, `retrieve_memory`, `save_memory`, `save_conversation_memory`
-- **Search Tools** ([web_search_tool.py](backend/app/tools/web_search_tool.py)): `tavily_search` for web search integration
+**工具系统** ([backend/app/tools/](backend/app/tools/)):
+- **系统工具** ([system_tool.py](backend/app/tools/system_tool.py)): `clear_conversation`, `update_user_name`, `retrieve_context`, `retriever_tool`
+- **用户工具** ([user_tool.py](backend/app/tools/user_tool.py)): `get_weather_for_location`, `retrieve_memory`, `save_memory`, `save_conversation_memory`
+- **搜索工具** ([web_search_tool.py](backend/app/tools/web_search_tool.py)): `tavily_search` 用于网络搜索集成
 
-**API Routes** ([backend/app/api/v1/](backend/app/api/v1/)):
-- `/api/v1/chat/ws/{user_id}` - WebSocket chat endpoint
-- `/api/v1/files/` - File upload and vectorization
-- `/api/v1/sessions/` - Session management
-- `/api/v1/memory/` - Memory CRUD operations
+**API 路由** ([backend/app/api/v1/](backend/app/api/v1/)):
+- `/api/v1/chat/ws/{user_id}` - WebSocket 聊天端点
+- `/api/v1/files/` - 文件上传和向量化
+- `/api/v1/sessions/` - 会话管理
+- `/api/v1/memory/` - 记忆 CRUD 操作
 
-**Configuration** ([backend/app/config.py](backend/app/config.py)):
-Uses Pydantic Settings for environment-based configuration with support for development, staging, and production environments.
+**配置** ([backend/app/config.py](backend/app/config.py)):
+使用 Pydantic Settings 进行基于环境的配置，支持开发、测试和生产环境。
 
-**Key Components**:
-- **LLM Factory** ([backend/app/llm/llm_factory.py](backend/app/llm/llm_factory.py)): Uses Qwen models via DashScope OpenAI-compatible API
-- **Embeddings** ([backend/app/retriever/embeddings_model.py](backend/app/retriever/embeddings_model.py)): DashScope text embeddings for vectorization
-- **Prompts** ([backend/app/prompt/prompt.py](backend/app/prompt/prompt.py)): System prompts for various agent operations
-- **PGVector Store** ([backend/app/retriever/pgvector_store.py](backend/app/retriever/pgvector_store.py)): PostgreSQL vector storage implementation with pgvector
-- **Retriever** ([backend/app/retriever/get_retriever.py](backend/app/retriever/get_retriever.py)): Retrieval setup using PostgreSQL vector search and web search
-- **Memory** ([backend/app/memory/memory_factory.py](backend/app/memory/memory_factory.py)): PostgreSQL memory store
+**核心组件**:
+- **LLM 工厂** ([backend/app/llm/llm_factory.py](backend/app/llm/llm_factory.py)): 通过 DashScope OpenAI 兼容 API 使用 Qwen 模型
+- **Embeddings** ([backend/app/retriever/embeddings_model.py](backend/app/retriever/embeddings_model.py)): DashScope 文本嵌入用于向量化
+- **Prompts** ([backend/app/prompt/prompt.py](backend/app/prompt/prompt.py)): 各种智能体操作的系统提示词
+- **PGVector Store** ([backend/app/retriever/pgvector_store.py](backend/app/retriever/pgvector_store.py)): PostgreSQL 向量存储实现（带 pgvector）
+- **检索器** ([backend/app/retriever/get_retriever.py](backend/app/retriever/get_retriever.py)): 使用 PostgreSQL 向量搜索和网络搜索的检索设置
+- **记忆** ([backend/app/memory/memory_factory.py](backend/app/memory/memory_factory.py)): PostgreSQL 记忆存储
 
-### Frontend (Vue3 + TypeScript)
+### 前端 (Vue3 + TypeScript)
 
-**Entry Point**: [frontend/src/main.ts](frontend/src/main.ts)
+**入口文件**: [frontend/src/main.ts](frontend/src/main.ts)
 
-The frontend is a Vue3 SPA with TypeScript, using Vite as the build tool.
+前端是一个使用 TypeScript 的 Vue3 SPA，使用 Vite 作为构建工具。
 
-**State Management (Pinia)**:
-- [frontend/src/stores/chat.ts](frontend/src/stores/chat.ts) - Chat message and state management
-- [frontend/src/stores/session.ts](frontend/src/stores/session.ts) - Session management
-- [frontend/src/stores/user.ts](frontend/src/stores/user.ts) - User state
+**状态管理 (Pinia)**:
+- [frontend/src/stores/chat.ts](frontend/src/stores/chat.ts) - 聊天消息和状态管理
+- [frontend/src/stores/session.ts](frontend/src/stores/session.ts) - 会话管理
+- [frontend/src/stores/user.ts](frontend/src/stores/user.ts) - 用户状态
 
-**Communication Layer**:
-- **WebSocket**: [frontend/src/composables/useWebSocket.ts](frontend/src/composables/useWebSocket.ts) - Real-time chat connection to backend
-- **REST API**: [frontend/src/api/](frontend/src/api/) - File upload, session, and memory operations via Axios
+**通信层**:
+- **WebSocket**: [frontend/src/composables/useWebSocket.ts](frontend/src/composables/useWebSocket.ts) - 与后端的实时聊天连接
+- **REST API**: [frontend/src/api/](frontend/src/api/) - 通过 Axios 进行文件上传、会话和记忆操作
 
-### Vector Database Configuration
+### 向量数据库配置
 
 **PostgreSQL+pgvector**:
-- Uses the same PostgreSQL connection as memory storage
-- Requires pgvector extension: `CREATE EXTENSION IF NOT EXISTS vector;`
-- Configured via `PGVECTOR_COLLECTION_NAME` in `.env` (default: `buddy_ai_docs`)
+- 使用与记忆存储相同的 PostgreSQL 连接
+- 需要 pgvector 扩展: `CREATE EXTENSION IF NOT EXISTS vector;`
+- 通过 `.env` 中的 `PGVECTOR_COLLECTION_NAME` 配置（默认: `buddy_ai_docs`）
 
-### Retrieval Strategy
+### 检索策略
 
-Hybrid retrieval is implemented:
-- Vector retrieval from PostgreSQL+pgvector with DashScope embeddings
-- Web search via Tavily API (max 3 results)
-- Results are combined with knowledge base having priority
+实现了混合检索：
+- 从 PostgreSQL+pgvector 进行向量检索，使用 DashScope embeddings
+- 通过 Tavily API 进行网络搜索（最多 3 个结果）
+- 结果组合时知识库优先
 
-### Memory and State Management
+### 记忆和状态管理
 
-- **Checkpointing**: Redis for conversation state persistence
-- **Memory Storage**: PostgreSQL for user-specific memories via PostgresStore
-- **WebSocket**: Real-time bidirectional communication for chat streaming
+- **Checkpointing**: Redis 用于对话状态持久化
+- **记忆存储**: PostgreSQL 通过 PostgresStore 存储用户特定记忆
+- **WebSocket**: 用于聊天流式传输的实时双向通信
 
-## Document Processing
+## 文档处理
 
-Supported formats: PDF, DOCX, TXT, MD, CSV (max 5MB per file)
-- Files uploaded via backend API and vectorized
-- Stored persistently in configured vector database
+支持的格式：PDF, DOCX, TXT, MD, CSV（每个文件最大 5MB）
+- 文件通过后端 API 上传并向量化
+- 持久存储在配置的向量数据库中
 
-## Important Notes
+## 重要说明
 
-- Python 3.11+ required
-- The system is designed for Chinese-language Q&A
-- Maximum 3 tool calls per query
-- When modifying the agent workflow, maintain the conditional edges structure in [backend/app/agent/graph.py](backend/app/agent/graph.py)
-- Tool configuration can be adjusted by modifying the tools list in agent configuration
-- WebSocket connections require user_id and optionally thread_id for session management
-- Vector storage uses PostgreSQL+pgvector extension
+- Python 3.11+ 必需
+- 系统专为中文问答设计
+- 每次查询最多 3 次工具调用
+- 修改智能体工作流时，请保持 [backend/app/agent/graph.py](backend/app/agent/graph.py) 中的条件边结构
+- 工具配置可以通过修改智能体配置中的工具列表来调整
+- WebSocket 连接需要 user_id 和可选的 thread_id 用于会话管理
+- 向量存储使用 PostgreSQL+pgvector 扩展
 
-## Dependencies
+## 依赖
 
-**Backend**:
-- `pyproject.toml` - Main dependency specification
-- `requirements.txt` - Simplified list for direct installation
+**后端**:
+- `pyproject.toml` - 主要依赖规范
+- `requirements.txt` - 用于直接安装的简化列表
 
-**Version Constraints**:
-- `langgraph-checkpoint==3.0.1` (must be <4.0.0 for compatibility with langgraph-checkpoint-redis)
+**版本约束**:
+- `langgraph-checkpoint==3.0.1`（必须 <4.0.0 以兼容 langgraph-checkpoint-redis）
 - `fastapi==0.109.0` with `starlette<0.36.0`

@@ -1,66 +1,51 @@
-
+import logging
 from langchain_core.messages import HumanMessage
 from .state import AgentState
-from ..prompt.prompt import REWRITE_PROMPT
+from ..prompt.prompt import (
+    REWRITE_KEYWORD_EXTRACTION_PROMPT,
+    REWRITE_SIMPLIFICATION_PROMPT
+)
 from ..llm.llm_factory import get_llm
 
-logger = __import__('logging').getLogger(__name__)
+logger = logging.getLogger(__name__)
+
 
 def rewrite_question(state: AgentState) -> dict:
-    """重写问题（防止死循环）"""
-    messages = state["messages"]
-    question = messages[0].content
+    """改进的重写问题节点 - 基于文档检索结果的智能策略"""
+    question = state.get("question", "")
     loop_step = state.get("loop_step", 0)
-    query_history = state.get("query_history", [])
 
     MAX_RETRIES = 3
     if loop_step >= MAX_RETRIES:
         logger.warning(f"超过最大重试次数 ({MAX_RETRIES})，停止重写")
-        return {
-            "messages": [HumanMessage(content=question)],
-            "loop_step": loop_step + 1,
-            "routing_decision": "generate_response"
-        }
+        return {"routing_decision": "generate_response"}
 
-    # 检测重复查询
-    current_query_normalized = question.lower().strip()
-    for prev_query in query_history[-3:]:
-        if _calculate_query_similarity(current_query_normalized, prev_query.lower().strip()) > 0.9:
-            logger.warning("检测到重复查询，停止重写")
-            return {
-                "messages": [HumanMessage(content=question)],
-                "loop_step": loop_step + 1,
-                "routing_decision": "generate_response"
-            }
+    # === 基于文档检索结果判断策略 ===
+    doc_count = _get_document_count(state.get("parallel_results", []))
 
-    # 策略判断
-    last_message = messages[-1]
-    strategy = "优化检索"
+    # === 智能策略选择 ===
+    strategy = _select_rewrite_strategy(doc_count)
 
-    if hasattr(last_message, "tool_call_id") or last_message.type == "tool":
-        content = last_message.content
-        if "没有找到" in content or len(content) < 50:
-            strategy = "联网搜索"
-        elif loop_step >= 1:
-            strategy = "简化表达"
+    # 如果策略为 None，表示不重写，直接生成响应
+    if strategy is None:
+        logger.info(f"检索到 {doc_count} 篇文档，不需要重写")
+        return {"routing_decision": "generate_response"}
 
-    # 生成重写问题
-    prompt = REWRITE_PROMPT.format(question=question, strategy=strategy)
-    response = get_llm().invoke([{"role": "user", "content": prompt}])
+    # === 生成重写问题 ===
+    rewritten_query = _rewrite_with_strategy(question, strategy)
 
-    rewritten_query = response.content.strip()
-
-    # 验证重写结果
-    similarity = _calculate_query_similarity(current_query_normalized, rewritten_query.lower().strip())
+    # === 验证重写结果 ===
+    similarity = _calculate_query_similarity(question, rewritten_query)
     if similarity > 0.85:
-        rewritten_query = question
+        logger.info(f"重写结果与原问题过于相似 (相似度: {similarity:.2f})，停止重写")
+        return {"routing_decision": "generate_response"}
 
-    logger.info(f"重写问题: '{question}' -> '{rewritten_query}', 次数: {loop_step}")
+    logger.info(f"重写问题: '{question}' -> '{rewritten_query}', 策略: {strategy}, 文档数: {doc_count}, 次数: {loop_step}")
 
     return {
         "messages": [HumanMessage(content=rewritten_query)],
         "loop_step": loop_step + 1,
-        "query_history": query_history + [question],
+        "question": rewritten_query,
         "routing_decision": None
     }
 
@@ -82,3 +67,48 @@ def _calculate_query_similarity(q1: str, q2: str) -> float:
     union = words1.union(words2)
 
     return len(intersection) / len(union) if union else 0.0
+
+
+def _get_document_count(parallel_results: list) -> int:
+    """从并行结果中获取文档数量（仅分析文档检索结果，忽略记忆）"""
+    for result in parallel_results:
+        if result.get("source") == "documents":
+            return len(result.get("data", []))
+    return 0
+
+
+def _select_rewrite_strategy(doc_count: int) -> str:
+    """基于文档检索结果智能选择重写策略
+
+    策略选择逻辑：
+    | 文档数量 | 策略 |
+    |----------|------|
+    | 0篇      | 关键词提取（重写） |
+    | 1-3篇    | 不重写，直接生成响应 |
+    | 大于3篇  | 简化表达（重写） |
+
+    返回策略名称，或 None 表示不重写
+    """
+    if doc_count == 0:
+        return "keyword_extraction"
+    elif 1 <= doc_count <= 3:
+        return None  # 不重写，直接生成响应
+    else:
+        return "simplification"
+
+
+def _rewrite_with_strategy(question: str, strategy: str) -> str:
+    """根据策略重写问题"""
+    # 策略到Prompt的映射
+    strategy_prompt_map = {
+        "keyword_extraction": REWRITE_KEYWORD_EXTRACTION_PROMPT,
+        "simplification": REWRITE_SIMPLIFICATION_PROMPT
+    }
+
+    prompt_template = strategy_prompt_map.get(strategy)
+    if not prompt_template:
+        return question  # 如果没有匹配的prompt，返回原问题
+    prompt = prompt_template.format(question=question)
+
+    response = get_llm().invoke([{"role": "user", "content": prompt}])
+    return response.content.strip()

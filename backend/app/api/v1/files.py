@@ -55,69 +55,68 @@ def get_vector_collection_metadata(user_id: str = None):
     try:
         from app.config import settings
 
-        if settings.VECTOR_DB_TYPE == "postgresql":
-            # PGVector - 直接从 embedding 表查询
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
+        # PGVector - 直接从 embedding 表查询
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
 
-            conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-            cursor = conn.cursor()
+        conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
 
-            try:
-                if user_id:
-                    # 查询特定用户的文档，按file_id分组统计
-                    cursor.execute("""
-                        SELECT
-                            e.cmetadata->>'file_id' as file_id,
-                            e.cmetadata->>'filename' as filename,
-                            e.cmetadata->>'file_type' as file_type,
-                            e.cmetadata->>'file_size' as file_size,
-                            e.cmetadata->>'upload_time' as upload_time,
-                            e.cmetadata->>'user_id' as user_id,
-                            COUNT(*) as chunk_count
-                        FROM langchain_pg_embedding e
-                        WHERE e.cmetadata->>'user_id' = %s
-                        GROUP BY e.cmetadata->>'file_id', e.cmetadata->>'filename',
-                                 e.cmetadata->>'file_type', e.cmetadata->>'file_size',
-                                 e.cmetadata->>'upload_time', e.cmetadata->>'user_id'
-                    """, (user_id,))
-                else:
-                    # 查询所有文档
-                    cursor.execute("""
-                        SELECT
-                            e.cmetadata->>'file_id' as file_id,
-                            e.cmetadata->>'filename' as filename,
-                            e.cmetadata->>'file_type' as file_type,
-                            e.cmetadata->>'file_size' as file_size,
-                            e.cmetadata->>'upload_time' as upload_time,
-                            e.cmetadata->>'user_id' as user_id,
-                            COUNT(*) as chunk_count
-                        FROM langchain_pg_embedding e
-                        GROUP BY e.cmetadata->>'file_id', e.cmetadata->>'filename',
-                                 e.cmetadata->>'file_type', e.cmetadata->>'file_size',
-                                 e.cmetadata->>'upload_time', e.cmetadata->>'user_id'
-                    """)
+        try:
+            if user_id:
+                # 查询特定用户的文档，按file_id分组统计
+                cursor.execute("""
+                    SELECT
+                        e.cmetadata->>'file_id' as file_id,
+                        e.cmetadata->>'filename' as filename,
+                        e.cmetadata->>'file_type' as file_type,
+                        e.cmetadata->>'file_size' as file_size,
+                        e.cmetadata->>'upload_time' as upload_time,
+                        e.cmetadata->>'user_id' as user_id,
+                        COUNT(*) as chunk_count
+                    FROM langchain_pg_embedding e
+                    WHERE e.cmetadata->>'user_id' = %s
+                    GROUP BY e.cmetadata->>'file_id', e.cmetadata->>'filename',
+                                e.cmetadata->>'file_type', e.cmetadata->>'file_size',
+                                e.cmetadata->>'upload_time', e.cmetadata->>'user_id'
+                """, (user_id,))
+            else:
+                # 查询所有文档
+                cursor.execute("""
+                    SELECT
+                        e.cmetadata->>'file_id' as file_id,
+                        e.cmetadata->>'filename' as filename,
+                        e.cmetadata->>'file_type' as file_type,
+                        e.cmetadata->>'file_size' as file_size,
+                        e.cmetadata->>'upload_time' as upload_time,
+                        e.cmetadata->>'user_id' as user_id,
+                        COUNT(*) as chunk_count
+                    FROM langchain_pg_embedding e
+                    GROUP BY e.cmetadata->>'file_id', e.cmetadata->>'filename',
+                                e.cmetadata->>'file_type', e.cmetadata->>'file_size',
+                                e.cmetadata->>'upload_time', e.cmetadata->>'user_id'
+                """)
 
-                rows = cursor.fetchall()
-                metadatas = []
-                for row in rows:
-                    metadatas.append({
-                        "file_id": row['file_id'],
-                        "filename": row['filename'],
-                        "file_type": row['file_type'],
-                        "file_size": int(row['file_size']) if row['file_size'] else 0,
-                        "upload_time": row['upload_time'],
-                        "user_id": row['user_id'],
-                        "chunk_count": row['chunk_count']
-                    })
+            rows = cursor.fetchall()
+            metadatas = []
+            for row in rows:
+                metadatas.append({
+                    "file_id": row['file_id'],
+                    "filename": row['filename'],
+                    "file_type": row['file_type'],
+                    "file_size": int(row['file_size']) if row['file_size'] else 0,
+                    "upload_time": row['upload_time'],
+                    "user_id": row['user_id'],
+                    "chunk_count": row['chunk_count']
+                })
 
-                return metadatas
-            finally:
-                cursor.close()
-                conn.close()
+            return metadatas
+        finally:
+            cursor.close()
+            conn.close()
+            
     except Exception as e:
         logger.error(f"获取向量数据库元数据失败: {e}")
-        return []
         return []
 
 
