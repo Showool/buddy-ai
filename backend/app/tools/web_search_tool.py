@@ -1,5 +1,9 @@
+import logging
+
 from langchain.tools import tool
 from langchain_tavily import TavilySearch
+
+logger = logging.getLogger(__name__)
 
 
 # 创建Tavily搜索工具
@@ -20,9 +24,11 @@ def tavily_search(query: str):
     # 执行搜索
     search_results = search.invoke({"query": query})
 
-    print(
+    logger.debug(
         f"Tavily搜索结果数量：{len(search_results) if isinstance(search_results, list) else 1}"
     )
-    print(f"Tavily搜索结果: {search_results}")
+    logger.info(
+        f"Tavily搜索完成: query='{query}', 结果数={len(search_results) if isinstance(search_results, list) else 1}"
+    )
 
     return search_results

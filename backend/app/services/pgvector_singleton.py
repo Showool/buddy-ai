@@ -1,22 +1,21 @@
 """
-PGVector 单例服务 - 同步版本
+PGVector 单例服务 - 委托给 pgvector_store 的单例
 """
 
 import logging
 from typing import Optional
 
-from langchain_postgres import PGVector
 from langchain_postgres.vectorstores import PGVector as LangchainPGVector
-
-from app.config import settings
-from app.retriever.embeddings_model import get_embeddings_model
 
 logger = logging.getLogger(__name__)
 
 
 class PGVectorSingleton:
+    """
+    PGVector 单例类 - 已弃用，请使用 app.retriever.pgvector_store.get_pgvector_store()
+    """
+
     _instance: Optional["PGVectorSingleton"] = None
-    _vector_store: Optional[LangchainPGVector] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -24,16 +23,17 @@ class PGVectorSingleton:
         return cls._instance
 
     def get_vector_store(self) -> LangchainPGVector:
-        if self._vector_store is None:
-            self._vector_store = PGVector(
-                collection_name=settings.PGVECTOR_COLLECTION_NAME,
-                connection=settings.POSTGRESQL_URL,
-                embeddings=get_embeddings_model(),
-                use_jsonb=True,
-            )
-            logger.info("PGVector 实例创建成功（同步）")
+        """
+        获取 PGVector 实例（委托给 pgvector_store 单例）
 
-        return self._vector_store
+        已弃用：直接使用 get_pgvector_store() 代替
+        """
+        logger.warning(
+            "PGVectorSingleton.get_vector_store() 已弃用，请使用 get_pgvector_store()"
+        )
+        from app.retriever.pgvector_store import get_pgvector_store
+
+        return get_pgvector_store()
 
 
 pgvector_singleton = PGVectorSingleton()

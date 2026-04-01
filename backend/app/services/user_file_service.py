@@ -1,13 +1,16 @@
 """
 用户文件服务 - 处理文件的 PostgreSQL 存储和检索
+
+使用线程安全的连接池单例模式管理数据库连接
 """
 
 import logging
+import threading
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
-import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 
 from app.config import settings
@@ -16,34 +19,42 @@ from app.utils.datetime_utils import get_beijing_now
 
 logger = logging.getLogger(__name__)
 
+# 连接池单例（线程安全）
+_connection_pool: Optional[pool.ThreadedConnectionPool] = None
+_connection_pool_lock = threading.Lock()
+
+
+def _get_connection_pool() -> pool.ThreadedConnectionPool:
+    """获取数据库连接池（线程安全单例模式）"""
+    global _connection_pool
+
+    if _connection_pool is None:
+        with _connection_pool_lock:
+            # 双重检查锁定
+            if _connection_pool is None:
+                _connection_pool = pool.ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=10,
+                    dsn=settings.POSTGRESQL_URL,
+                    cursor_factory=RealDictCursor,
+                )
+                logger.info("数据库连接池创建成功")
+
+    return _connection_pool
+
+
+def _get_connection():
+    """从连接池获取连接"""
+    return _get_connection_pool().getconn()
+
+
+def _return_connection(conn):
+    """归还连接到连接池"""
+    _get_connection_pool().putconn(conn)
+
 
 class UserFileService:
     """用户文件服务"""
-
-    def __init__(self):
-        self.connection = None
-        self._connect()
-
-    def _connect(self):
-        """连接到 PostgreSQL 数据库"""
-        try:
-            self.connection = psycopg2.connect(
-                settings.POSTGRESQL_URL, cursor_factory=RealDictCursor
-            )
-            logger.info("成功连接到 PostgreSQL 数据库")
-        except Exception as e:
-            logger.error(f"连接数据库失败: {e}")
-            raise
-
-    def _ensure_connection(self):
-        """确保数据库连接有效"""
-        if self.connection is None or self.connection.closed:
-            self._connect()
-
-    def _get_cursor(self):
-        """获取数据库游标"""
-        self._ensure_connection()
-        return self.connection.cursor()
 
     def save_file(
         self, user_id: str, original_filename: str, file_content: bytes, file_type: str
@@ -62,7 +73,8 @@ class UserFileService:
         Returns:
             str: 文件ID
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             # 检查用户是否已上传同名文件
@@ -79,16 +91,8 @@ class UserFileService:
 
                 # 【关键】先删除向量数据：使用统一collection，通过元数据过滤
                 try:
-                    from psycopg2.extras import RealDictCursor
-                    import psycopg2
-
-                    vec_conn = psycopg2.connect(
-                        settings.POSTGRESQL_URL, cursor_factory=RealDictCursor
-                    )
-                    vec_cursor = vec_conn.cursor()
-
-                    # 删除该用户和文件ID的 embedding 数据（使用统一collection）
-                    vec_cursor.execute(
+                    # 使用同一连接删除向量数据
+                    cursor.execute(
                         """
                         DELETE FROM langchain_pg_embedding
                         WHERE collection_id = (
@@ -98,13 +102,14 @@ class UserFileService:
                         AND cmetadata->>'user_id' = %s
                         AND cmetadata->>'filename' = %s
                     """,
-                        (settings.PGVECTOR_COLLECTION_NAME, user_id, original_filename),
+                        (
+                            settings.PGVECTOR_COLLECTION_NAME,
+                            user_id,
+                            original_filename,
+                        ),
                     )
 
-                    deleted_count = vec_cursor.rowcount
-                    vec_conn.commit()
-                    vec_cursor.close()
-                    vec_conn.close()
+                    deleted_count = cursor.rowcount
                     logger.info(
                         f"已删除向量数据: 用户={user_id}, 文件={original_filename}, 记录数={deleted_count}"
                     )
@@ -113,7 +118,6 @@ class UserFileService:
 
                 # 再删除旧文件记录
                 cursor.execute("DELETE FROM user_files WHERE id = %s", (old_file_id,))
-                self.connection.commit()
 
             # 生成新的文件ID
             file_id = str(uuid.uuid4())
@@ -135,14 +139,17 @@ class UserFileService:
                 ),
             )
 
-            self.connection.commit()
+            conn.commit()
             logger.info(f"文件保存成功: {file_id}")
             return file_id
 
         except Exception as e:
-            self.connection.rollback()
+            conn.rollback()
             logger.error(f"保存文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
     def get_file_by_id(self, file_id: str) -> Optional[UserFile]:
         """
@@ -154,7 +161,8 @@ class UserFileService:
         Returns:
             UserFile: 文件信息，如果不存在则返回 None
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             cursor.execute(
@@ -187,6 +195,9 @@ class UserFileService:
         except Exception as e:
             logger.error(f"获取文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
     def get_file_content(self, file_id: str) -> Optional[bytes]:
         """
@@ -198,11 +209,13 @@ class UserFileService:
         Returns:
             bytes: 文件内容，如果不存在则返回 None
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             cursor.execute(
-                "SELECT file_content FROM user_files WHERE id = %s", (file_id,)
+                "SELECT file_content FROM user_files WHERE id = %s",
+                (file_id,),
             )
             row = cursor.fetchone()
 
@@ -213,6 +226,9 @@ class UserFileService:
         except Exception as e:
             logger.error(f"获取文件内容失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
     def get_file_by_user_and_filename(
         self, user_id: str, original_filename: str
@@ -227,7 +243,8 @@ class UserFileService:
         Returns:
             UserFile: 文件信息，如果不存在则返回 None
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             cursor.execute(
@@ -261,6 +278,9 @@ class UserFileService:
         except Exception as e:
             logger.error(f"获取用户文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
     def list_user_files(self, user_id: str) -> List[UserFile]:
         """
@@ -272,7 +292,8 @@ class UserFileService:
         Returns:
             List[UserFile]: 文件列表
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             cursor.execute(
@@ -308,6 +329,9 @@ class UserFileService:
         except Exception as e:
             logger.error(f"列出用户文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
     def delete_file(self, file_id: str) -> bool:
         """
@@ -319,16 +343,20 @@ class UserFileService:
         Returns:
             bool: 是否删除成功
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             # 先删除向量数据库中的相关数据
-            self._delete_vector_data(file_id)
+            self._delete_vector_data(file_id, conn, cursor)
 
             # 删除文件记录
-            cursor.execute("DELETE FROM user_files WHERE id = %s", (file_id,))
+            cursor.execute(
+                "DELETE FROM user_files WHERE id = %s",
+                (file_id,),
+            )
 
-            self.connection.commit()
+            conn.commit()
 
             deleted = cursor.rowcount > 0
             if deleted:
@@ -337,9 +365,12 @@ class UserFileService:
             return deleted
 
         except Exception as e:
-            self.connection.rollback()
+            conn.rollback()
             logger.error(f"删除文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
     def delete_user_files(self, user_id: str) -> int:
         """
@@ -351,21 +382,28 @@ class UserFileService:
         Returns:
             int: 删除的文件数量
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             # 获取用户的所有文件ID
-            cursor.execute("SELECT id FROM user_files WHERE user_id = %s", (user_id,))
+            cursor.execute(
+                "SELECT id FROM user_files WHERE user_id = %s",
+                (user_id,),
+            )
             rows = cursor.fetchall()
 
             # 删除每个文件的向量数据
             for row in rows:
-                self._delete_vector_data(row["id"])
+                self._delete_vector_data(row["id"], conn, cursor)
 
             # 删除文件记录
-            cursor.execute("DELETE FROM user_files WHERE user_id = %s", (user_id,))
+            cursor.execute(
+                "DELETE FROM user_files WHERE user_id = %s",
+                (user_id,),
+            )
 
-            self.connection.commit()
+            conn.commit()
 
             deleted_count = cursor.rowcount
             logger.info(f"已删除用户 {user_id} 的 {deleted_count} 个文件")
@@ -373,17 +411,29 @@ class UserFileService:
             return deleted_count
 
         except Exception as e:
-            self.connection.rollback()
+            conn.rollback()
             logger.error(f"删除用户文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
-    def _delete_vector_data(self, file_id: str):
+    def _delete_vector_data(self, file_id: str, conn=None, cursor=None):
         """
         删除文件相关的向量数据
 
         Args:
             file_id: 文件ID
+            conn: 数据库连接（可选）
+            cursor: 数据库游标（可选）
         """
+        # 如果没有传入连接和游标，则创建新的
+        own_connection = False
+        if conn is None or cursor is None:
+            conn = _get_connection()
+            cursor = conn.cursor()
+            own_connection = True
+
         try:
             from app.retriever.pgvector_store import get_pgvector_store
 
@@ -407,6 +457,10 @@ class UserFileService:
 
         except Exception as e:
             logger.error(f"删除向量数据失败: {e}")
+        finally:
+            if own_connection:
+                cursor.close()
+                _return_connection(conn)
 
     def get_temp_file_path(self, file_id: str, file_type: str) -> str:
         """
@@ -451,12 +505,6 @@ class UserFileService:
         except Exception as e:
             logger.warning(f"删除临时文件失败: {e}")
 
-    def close(self):
-        """关闭数据库连接"""
-        if self.connection and not self.connection.closed:
-            self.connection.close()
-            logger.info("数据库连接已关闭")
-
     def list_public_files(self) -> List[UserFile]:
         """
         列出所有公开的文件
@@ -464,7 +512,8 @@ class UserFileService:
         Returns:
             List[UserFile]: 公开文件列表
         """
-        cursor = self._get_cursor()
+        conn = _get_connection()
+        cursor = conn.cursor()
 
         try:
             cursor.execute("""
@@ -490,6 +539,9 @@ class UserFileService:
         except Exception as e:
             logger.error(f"列出公开文件失败: {e}")
             raise
+        finally:
+            cursor.close()
+            _return_connection(conn)
 
 
 # 全局实例

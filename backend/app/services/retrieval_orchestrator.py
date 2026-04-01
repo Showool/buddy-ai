@@ -10,7 +10,7 @@ from langchain_core.documents import Document
 
 from app.config import settings
 from app.services.fulltext_search_service import fulltext_search_service
-from app.services.pgvector_singleton import pgvector_singleton
+from app.retriever.pgvector_store import get_pgvector_store
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class RetrievalOrchestrator:
         )
 
     def _retrieve_vector(self, query: str, user_id: str, k: int) -> RetrievalResult:
-        vector_store = pgvector_singleton.get_vector_store()
+        vector_store = get_pgvector_store()
         docs = vector_store.similarity_search_with_score(
             query=query, k=k, filter={"user_id": user_id, "doc_type": "chunk"}
         )
