@@ -1,6 +1,7 @@
 """
 PostgreSQL 全文搜索服务 - 同步版本
 """
+
 import logging
 from typing import List, Optional
 from dataclasses import dataclass
@@ -27,17 +28,11 @@ class FulltextSearchService:
     def _get_connection(self) -> psycopg2.extensions.connection:
         if self._connection is None or self._connection.closed:
             self._connection = psycopg2.connect(
-                settings.POSTGRESQL_URL,
-                cursor_factory=RealDictCursor
+                settings.POSTGRESQL_URL, cursor_factory=RealDictCursor
             )
         return self._connection
 
-    def search(
-        self,
-        query: str,
-        user_id: str,
-        k: int = 5
-    ) -> FulltextResult:
+    def search(self, query: str, user_id: str, k: int = 5) -> FulltextResult:
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -66,16 +61,17 @@ class FulltextSearchService:
             scores = []
 
             for row in rows:
-                documents.append(Document(
-                    page_content=row['document'],
-                    metadata=row['cmetadata']
-                ))
-                scores.append(float(row['score']))
+                documents.append(
+                    Document(page_content=row["document"], metadata=row["cmetadata"])
+                )
+                scores.append(float(row["score"]))
 
             if documents:
                 logger.info(f"全文搜索成功: 返回 {len(documents)} 个文档")
             else:
-                logger.warning(f"全文搜索未找到结果: query='{query}', user_id={user_id}")
+                logger.warning(
+                    f"全文搜索未找到结果: query='{query}', user_id={user_id}"
+                )
 
             return FulltextResult(documents=documents, scores=scores)
         finally:

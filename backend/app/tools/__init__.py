@@ -7,10 +7,8 @@ def get_tools():
     获取所有可用的工具列表
     """
     return [
-
         # 记忆管理
         save_conversation_memory,
-
         # 实时信息
         tavily_search,
     ]

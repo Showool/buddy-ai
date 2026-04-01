@@ -9,5 +9,5 @@ def get_llm(model: str = "qwen-plus"):
         temperature=0.7,
         model=model,
         openai_api_key=os.getenv("DASHSCOPE_API_KEY"),
-        openai_api_base=os.getenv("DASHSCOPE_BASE_URL")
+        openai_api_base=os.getenv("DASHSCOPE_BASE_URL"),
     )

@@ -15,14 +15,10 @@ def memory_retrieval_node(
 
     try:
         from ..memory.memory_service import memory_service
+
         memories = memory_service.retrieve_memory(user_id, query, limit=3)
         logger.info(f"检索到 {len(memories)} 条记忆")
-        return {
-            "parallel_results": [{
-                "source": "memory",
-                "data": memories
-            }]
-        }
+        return {"parallel_results": [{"source": "memory", "data": memories}]}
     except Exception as e:
         logger.error(f"记忆检索失败: {e}")
         return {"parallel_results": [{"source": "memory", "data": []}]}

@@ -7,7 +7,6 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status, Query
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from app.config import settings
 from app.models.chat import (
@@ -53,7 +52,9 @@ class ConnectionManager:
             if user_id in self.graphs:
                 del self.graphs[user_id]
 
-            logger.info(f"❌ 用户 {user_id} 已断开 (当前连接数: {self.connection_count})")
+            logger.info(
+                f"❌ 用户 {user_id} 已断开 (当前连接数: {self.connection_count})"
+            )
 
     async def send_message(self, user_id: str, message: dict):
         """发送消息到指定用户"""
@@ -85,6 +86,7 @@ class ConnectionManager:
         if user_id not in self.graphs:
             try:
                 from app.agent.graph import get_graph
+
                 self.graphs[user_id] = get_graph()
                 logger.info(f"为用户 {user_id} 创建了新的 graph 实例")
             except Exception as e:
@@ -106,25 +108,21 @@ manager = ConnectionManager()
 
 def get_message_type(message) -> str:
     """获取 LangChain 消息类型名称"""
-    msg_type = getattr(message, 'type', None)
+    msg_type = getattr(message, "type", None)
     if msg_type:
-        type_map = {
-            'human': 'HumanMessage',
-            'ai': 'AIMessage',
-            'tool': 'ToolMessage'
-        }
-        return type_map.get(msg_type, f'{msg_type.capitalize()}Message')
+        type_map = {"human": "HumanMessage", "ai": "AIMessage", "tool": "ToolMessage"}
+        return type_map.get(msg_type, f"{msg_type.capitalize()}Message")
 
-    role = getattr(message, 'role', None)
+    role = getattr(message, "role", None)
     if role:
         role_map = {
-            'user': 'HumanMessage',
-            'assistant': 'AIMessage',
-            'tool': 'ToolMessage'
+            "user": "HumanMessage",
+            "assistant": "AIMessage",
+            "tool": "ToolMessage",
         }
-        return role_map.get(role, f'{role.capitalize()}Message')
+        return role_map.get(role, f"{role.capitalize()}Message")
 
-    return 'UnknownMessage'
+    return "UnknownMessage"
 
 
 def convert_tool_calls(tool_calls) -> list:
@@ -134,10 +132,9 @@ def convert_tool_calls(tool_calls) -> list:
 
     result = []
     for call in tool_calls:
-        result.append(ToolCall(
-            name=call.get("name", "unknown"),
-            args=call.get("args", {})
-        ))
+        result.append(
+            ToolCall(name=call.get("name", "unknown"), args=call.get("args", {}))
+        )
     return result
 
 
@@ -145,7 +142,7 @@ def convert_tool_calls(tool_calls) -> list:
 async def chat_websocket(
     websocket: WebSocket,
     user_id: str,
-    thread_id: Optional[str] = Query(None, description="可选的会话ID")
+    thread_id: Optional[str] = Query(None, description="可选的会话ID"),
 ):
     """WebSocket 聊天接口"""
     # 尝试连接
@@ -154,11 +151,9 @@ async def chat_websocket(
         return
 
     # 发送连接成功消息
-    await websocket.send_json({
-        "type": "connected",
-        "user_id": user_id,
-        "message": "WebSocket 连接成功"
-    })
+    await websocket.send_json(
+        {"type": "connected", "user_id": user_id, "message": "WebSocket 连接成功"}
+    )
 
     try:
         while True:
@@ -174,15 +169,16 @@ async def chat_websocket(
             if message_type == "user_message":
                 logger.info(f"用户 {user_id} 发送消息: {content[:50]}...")
                 # 处理用户消息
-                await handle_user_message(user_id, content, current_thread_id, websocket)
+                await handle_user_message(
+                    user_id, content, current_thread_id, websocket
+                )
             elif message_type == "ping":
                 # 心跳响应
                 await websocket.send_json({"type": "pong"})
             else:
                 # 发送错误
                 error_msg = ErrorMessage(
-                    type=MessageType.ERROR,
-                    message=f"未知的消息类型: {message_type}"
+                    type=MessageType.ERROR, message=f"未知的消息类型: {message_type}"
                 )
                 await websocket.send_json(error_msg.model_dump())
                 logger.warning(f"未知的消息类型: {message_type}")
@@ -194,20 +190,16 @@ async def chat_websocket(
         logger.error(f"用户 {user_id} WebSocket 错误: {e}", exc_info=True)
         try:
             error_msg = ErrorMessage(
-                type=MessageType.ERROR,
-                message=str(e) if settings.DEBUG else "服务错误"
+                type=MessageType.ERROR, message=str(e) if settings.DEBUG else "服务错误"
             )
             await websocket.send_json(error_msg.model_dump())
-        except Exception:
-            pass
+        except Exception as send_error:
+            logger.error(f"发送错误消息失败: {send_error}")
         manager.disconnect(user_id)
 
 
 async def handle_user_message(
-    user_id: str,
-    content: str,
-    thread_id: str,
-    websocket: WebSocket
+    user_id: str, content: str, thread_id: str, websocket: WebSocket
 ):
     """处理用户消息 - 使用 LangGraph Agent"""
     try:
@@ -215,12 +207,7 @@ async def handle_user_message(
         graph = manager.get_or_create_graph(user_id)
 
         # 配置
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "user_id": user_id
-            }
-        }
+        config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
 
         # 使用 graph.stream() 获取执行流
         assistant_messages = []
@@ -244,12 +231,11 @@ async def handle_user_message(
                 # 收集所有的assistant消息
                 if message_type == "AIMessage":
                     tool_calls = convert_tool_calls(
-                        getattr(last_message, 'tool_calls', None)
+                        getattr(last_message, "tool_calls", None)
                     )
-                    assistant_messages.append({
-                        "content": last_message.content,
-                        "tool_calls": tool_calls
-                    })
+                    assistant_messages.append(
+                        {"content": last_message.content, "tool_calls": tool_calls}
+                    )
 
                 # 发送步骤消息
                 step_msg = AgentStepMessage(
@@ -257,23 +243,25 @@ async def handle_user_message(
                     node="agent_step",
                     message_type=message_type,
                     content=str(last_message),
-                    tool_calls=convert_tool_calls(getattr(last_message, 'tool_calls', None))
+                    tool_calls=convert_tool_calls(
+                        getattr(last_message, "tool_calls", None)
+                    ),
                 )
                 await websocket.send_json(step_msg.model_dump())
 
         # 使用最后一条没有 tool_calls 的 AI 消息作为最终回答
         final_answer = ""
         for msg in reversed(assistant_messages):
-            if not msg.get('tool_calls'):
-                if msg.get('content') and msg['content'].strip():
-                    final_answer = msg['content']
+            if not msg.get("tool_calls"):
+                if msg.get("content") and msg["content"].strip():
+                    final_answer = msg["content"]
                     break
 
         # 发送完成消息
         complete_msg = AgentCompleteMessage(
             type=MessageType.AGENT_COMPLETE,
             final_answer=final_answer or "抱歉，我没有找到合适的答案。",
-            thread_id=thread_id
+            thread_id=thread_id,
         )
         await websocket.send_json(complete_msg.model_dump())
 
@@ -283,7 +271,7 @@ async def handle_user_message(
         logger.error(f"处理用户 {user_id} 消息失败: {e}", exc_info=True)
         error_msg = ErrorMessage(
             type=MessageType.ERROR,
-            message=str(e) if settings.DEBUG else "处理消息时发生错误"
+            message=str(e) if settings.DEBUG else "处理消息时发生错误",
         )
         await websocket.send_json(error_msg.model_dump())
 

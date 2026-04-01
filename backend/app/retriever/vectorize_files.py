@@ -1,18 +1,24 @@
 import traceback
-from pathlib import Path
-from typing import Dict
+from typing import Dict, Any
 
-from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredMarkdownLoader, Docx2txtLoader, TextLoader, CSVLoader
+from langchain_community.document_loaders import (
+    PyMuPDFLoader,
+    UnstructuredMarkdownLoader,
+    Docx2txtLoader,
+    TextLoader,
+    CSVLoader,
+)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_postgres import PGVector
-from langchain_core.documents import Document
 
 from .embeddings_model import get_embeddings_model
 from app.config import settings
 from app.utils.datetime_utils import datetime_to_iso
 
 
-def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[str, any]:
+def vectorize_uploaded_file(
+    file_id: str, filename: str, user_id: str
+) -> Dict[str, Any]:
     """
     向量化单个上传的文件
 
@@ -33,24 +39,29 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
             return {"success": False, "chunk_count": 0, "message": "文件不存在"}
 
         # 创建临时文件用于加载
-        temp_file_path = user_file_service.get_temp_file_path(file_id, user_file.file_type)
+        temp_file_path = user_file_service.get_temp_file_path(
+            file_id, user_file.file_type
+        )
 
         # 加载文件内容
-        path = Path(temp_file_path)
         file_type = user_file.file_type
 
-        if file_type == 'pdf':
+        if file_type == "pdf":
             loader = PyMuPDFLoader(temp_file_path)
-        elif file_type == 'md':
+        elif file_type == "md":
             loader = UnstructuredMarkdownLoader(temp_file_path)
-        elif file_type == 'docx':
+        elif file_type == "docx":
             loader = Docx2txtLoader(temp_file_path)
-        elif file_type == 'txt':
-            loader = TextLoader(temp_file_path, encoding='utf-8')
-        elif file_type == 'csv':
+        elif file_type == "txt":
+            loader = TextLoader(temp_file_path, encoding="utf-8")
+        elif file_type == "csv":
             loader = CSVLoader(temp_file_path)
         else:
-            return {"success": False, "chunk_count": 0, "message": f"不支持的文件类型: {file_type}"}
+            return {
+                "success": False,
+                "chunk_count": 0,
+                "message": f"不支持的文件类型: {file_type}",
+            }
 
         loaded_texts = loader.load()
 
@@ -60,16 +71,22 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
 
         # 为每个文档添加元数据
         for doc in split_docs:
-            doc.metadata.update({
-                "file_id": file_id,
-                "filename": user_file.original_filename,
-                "file_type": user_file.file_type,
-                "file_size": user_file.file_size,
-                "upload_time": datetime_to_iso(user_file.upload_time) if user_file.upload_time else None,
-                "source": user_file.original_filename,
-                "user_id": user_id,
-                "doc_type": "chunk"  # 添加 doc_type 用于过滤
-            })
+            doc.metadata.update(
+                {
+                    "file_id": file_id,
+                    "filename": user_file.original_filename,
+                    "file_type": user_file.file_type,
+                    "file_size": user_file.file_size,
+                    "upload_time": (
+                        datetime_to_iso(user_file.upload_time)
+                        if user_file.upload_time
+                        else None
+                    ),
+                    "source": user_file.original_filename,
+                    "user_id": user_id,
+                    "doc_type": "chunk",  # 添加 doc_type 用于过滤
+                }
+            )
 
         # 删除旧的向量数据（使用统一collection，通过file_id和user_id过滤）
         delete_file_vectors_by_metadata(file_id, user_id)
@@ -87,19 +104,12 @@ def vectorize_uploaded_file(file_id: str, filename: str, user_id: str) -> Dict[s
         # 清理临时文件
         user_file_service.cleanup_temp_file(temp_file_path)
 
-        return {
-            "success": True,
-            "chunk_count": len(split_docs)
-        }
+        return {"success": True, "chunk_count": len(split_docs)}
 
     except Exception as e:
         print(f"向量化失败: {e}")
         print(traceback.format_exc())
-        return {
-            "success": False,
-            "chunk_count": 0,
-            "message": str(e)
-        }
+        return {"success": False, "chunk_count": 0, "message": str(e)}
 
 
 def delete_file_vectors_by_metadata(file_id: str, user_id: str) -> bool:
@@ -121,7 +131,8 @@ def delete_file_vectors_by_metadata(file_id: str, user_id: str) -> bool:
         conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             DELETE FROM langchain_pg_embedding
             WHERE collection_id = (
                 SELECT uuid FROM langchain_pg_collection
@@ -129,7 +140,9 @@ def delete_file_vectors_by_metadata(file_id: str, user_id: str) -> bool:
             )
             AND cmetadata->>'file_id' = %s
             AND cmetadata->>'user_id' = %s
-        """, (settings.PGVECTOR_COLLECTION_NAME, file_id, user_id))
+        """,
+            (settings.PGVECTOR_COLLECTION_NAME, file_id, user_id),
+        )
 
         deleted_count = cursor.rowcount
         conn.commit()
@@ -157,18 +170,21 @@ def delete_file_vectors(filename: str, user_id: str) -> bool:
         cursor = conn.cursor()
 
         # 先删除 embedding 数据
-        cursor.execute("""
+        cursor.execute(
+            """
             DELETE FROM langchain_pg_embedding
             WHERE collection_id = (
                 SELECT uuid FROM langchain_pg_collection
                 WHERE name = %s AND cmetadata @> %s::jsonb
             )
-        """, (filename, f'{{"user_id": "{user_id}"}}'))
+        """,
+            (filename, f'{{"user_id": "{user_id}"}}'),
+        )
 
         # 删除 collection
         cursor.execute(
             "DELETE FROM langchain_pg_collection WHERE name = %s AND cmetadata @> %s::jsonb",
-            (filename, f'{{"user_id": "{user_id}"}}')
+            (filename, f'{{"user_id": "{user_id}"}}'),
         )
 
         conn.commit()
@@ -208,7 +224,9 @@ def delete_user_vector_data(user_id: str) -> bool:
             # 删除这些文档
             if doc_ids_to_delete:
                 vector_store.delete(ids=doc_ids_to_delete)
-                print(f"从向量数据库删除了用户 {user_id} 的 {len(doc_ids_to_delete)} 个文档片段")
+                print(
+                    f"从向量数据库删除了用户 {user_id} 的 {len(doc_ids_to_delete)} 个文档片段"
+                )
                 return True
 
         return True

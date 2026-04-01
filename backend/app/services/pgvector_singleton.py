@@ -1,6 +1,7 @@
 """
 PGVector 单例服务 - 同步版本
 """
+
 import logging
 from typing import Optional
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class PGVectorSingleton:
-    _instance: Optional['PGVectorSingleton'] = None
+    _instance: Optional["PGVectorSingleton"] = None
     _vector_store: Optional[LangchainPGVector] = None
 
     def __new__(cls):
@@ -28,7 +29,7 @@ class PGVectorSingleton:
                 collection_name=settings.PGVECTOR_COLLECTION_NAME,
                 connection=settings.POSTGRESQL_URL,
                 embeddings=get_embeddings_model(),
-                use_jsonb=True
+                use_jsonb=True,
             )
             logger.info("PGVector 实例创建成功（同步）")
 

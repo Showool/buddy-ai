@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage
 from .state import AgentState
 from ..prompt.prompt import (
     REWRITE_KEYWORD_EXTRACTION_PROMPT,
-    REWRITE_SIMPLIFICATION_PROMPT
+    REWRITE_SIMPLIFICATION_PROMPT,
 )
 from ..llm.llm_factory import get_llm
 
@@ -40,13 +40,15 @@ def rewrite_question(state: AgentState) -> dict:
         logger.info(f"重写结果与原问题过于相似 (相似度: {similarity:.2f})，停止重写")
         return {"routing_decision": "generate_response"}
 
-    logger.info(f"重写问题: '{question}' -> '{rewritten_query}', 策略: {strategy}, 文档数: {doc_count}, 次数: {loop_step}")
+    logger.info(
+        f"重写问题: '{question}' -> '{rewritten_query}', 策略: {strategy}, 文档数: {doc_count}, 次数: {loop_step}"
+    )
 
     return {
         "messages": [HumanMessage(content=rewritten_query)],
         "loop_step": loop_step + 1,
         "question": rewritten_query,
-        "routing_decision": None
+        "routing_decision": None,
     }
 
 
@@ -102,7 +104,7 @@ def _rewrite_with_strategy(question: str, strategy: str) -> str:
     # 策略到Prompt的映射
     strategy_prompt_map = {
         "keyword_extraction": REWRITE_KEYWORD_EXTRACTION_PROMPT,
-        "simplification": REWRITE_SIMPLIFICATION_PROMPT
+        "simplification": REWRITE_SIMPLIFICATION_PROMPT,
     }
 
     prompt_template = strategy_prompt_map.get(strategy)

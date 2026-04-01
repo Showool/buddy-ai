@@ -3,9 +3,10 @@
 
 使用统一 Collection 设计，支持增量更新和进度跟踪
 """
+
 import logging
 import asyncio
-from typing import Dict, Optional
+from typing import Optional
 from dataclasses import dataclass
 
 from langchain_postgres import PGVector
@@ -15,9 +16,7 @@ from langchain_core.documents import Document
 from app.config import settings
 from app.retriever.embeddings_model import get_embeddings_model
 from app.services.user_file_service import user_file_service
-from app.utils.document_processing import (
-    process_document, compute_content_hash
-)
+from app.utils.document_processing import process_document, compute_content_hash
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class VectorizationResult:
     """向量化结果"""
+
     success: bool
     chunk_count: int
     summary: Optional[str] = None
@@ -41,15 +41,11 @@ class VectorizationService:
             model="qwen-plus",
             openai_api_key=settings.DASHSCOPE_API_KEY,
             openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            temperature=0.3
+            temperature=0.3,
         )
 
     async def vectorize_file(
-        self,
-        file_id: str,
-        user_id: str,
-        filename: str,
-        is_public: bool = False
+        self, file_id: str, user_id: str, filename: str, is_public: bool = False
     ) -> VectorizationResult:
         """
         异步向量化文件
@@ -60,17 +56,13 @@ class VectorizationService:
             user_file = user_file_service.get_file_by_id(file_id)
             if not user_file:
                 return VectorizationResult(
-                    success=False,
-                    chunk_count=0,
-                    error_message="文件不存在"
+                    success=False, chunk_count=0, error_message="文件不存在"
                 )
 
             file_content = user_file_service.get_file_content(file_id)
             if not file_content:
                 return VectorizationResult(
-                    success=False,
-                    chunk_count=0,
-                    error_message="文件内容不存在"
+                    success=False, chunk_count=0, error_message="文件内容不存在"
                 )
 
             # 检查是否需要向量化
@@ -81,10 +73,12 @@ class VectorizationService:
                     success=True,
                     chunk_count=user_file.chunk_count or 0,
                     summary=user_file.document_summary,
-                    vectorized=False
+                    vectorized=False,
                 )
 
-            temp_file_path = user_file_service.get_temp_file_path(file_id, user_file.file_type)
+            temp_file_path = user_file_service.get_temp_file_path(
+                file_id, user_file.file_type
+            )
 
             try:
                 # 处理文档
@@ -95,11 +89,11 @@ class VectorizationService:
                     file_content,
                     file_id,
                     user_id,
-                    filename
+                    filename,
                 )
 
-                chunks = result['documents']
-                content_hash = result['content_hash']
+                chunks = result["documents"]
+                content_hash = result["content_hash"]
 
                 # 更新状态为处理中
                 await self._update_file_status(file_id, "processing")
@@ -112,12 +106,7 @@ class VectorizationService:
 
                 # 向量化
                 await self._vectorize_chunks(
-                    chunks,
-                    file_id,
-                    user_id,
-                    filename,
-                    is_public,
-                    batch_size=10
+                    chunks, file_id, user_id, filename, is_public, batch_size=10
                 )
 
                 # 保存摘要
@@ -125,10 +114,7 @@ class VectorizationService:
 
                 # 更新文件记录
                 await self._update_file_record(
-                    file_id,
-                    content_hash,
-                    summary,
-                    len(chunks)
+                    file_id, content_hash, summary, len(chunks)
                 )
 
                 # 标记完成
@@ -140,7 +126,7 @@ class VectorizationService:
                     success=True,
                     chunk_count=len(chunks),
                     summary=summary,
-                    vectorized=True
+                    vectorized=True,
                 )
 
             finally:
@@ -150,9 +136,7 @@ class VectorizationService:
             logger.error(f"向量化失败: {e}")
             await self._update_file_status(file_id, "failed")
             return VectorizationResult(
-                success=False,
-                chunk_count=0,
-                error_message=str(e)
+                success=False, chunk_count=0, error_message=str(e)
             )
 
     async def _generate_summary(self, chunks: list) -> str:
@@ -176,7 +160,7 @@ class VectorizationService:
         user_id: str,
         filename: str,
         is_public: bool,
-        batch_size: int = 10
+        batch_size: int = 10,
     ):
         """分批向量化片段"""
         vector_store = PGVector(
@@ -188,7 +172,7 @@ class VectorizationService:
 
         total = len(chunks)
         for i in range(0, total, batch_size):
-            batch = chunks[i:i + batch_size]
+            batch = chunks[i : i + batch_size]
 
             # 为每个chunk添加 doc_type 元数据
             for doc in batch:
@@ -200,12 +184,7 @@ class VectorizationService:
             logger.debug(f"向量化进度: {processed}/{total}")
 
     async def _save_summary(
-        self,
-        summary: str,
-        file_id: str,
-        user_id: str,
-        filename: str,
-        is_public: bool
+        self, summary: str, file_id: str, user_id: str, filename: str, is_public: bool
     ):
         """保存摘要向量"""
         summary_doc = Document(
@@ -216,8 +195,8 @@ class VectorizationService:
                 "filename": filename,
                 "user_id": user_id,
                 "is_public": is_public,
-                "source": filename
-            }
+                "source": filename,
+            },
         )
 
         vector_store = PGVector(
@@ -231,30 +210,25 @@ class VectorizationService:
 
     async def _delete_old_vectors(self, file_id: str):
         """删除旧向量数据"""
-        # 通过 metadata 过滤查找该文件的向量数据
-        vector_store = PGVector(
-            embeddings=get_embeddings_model(),
-            collection_name=self.collection_name,
-            connection=settings.POSTGRESQL_URL,
-            use_jsonb=True,
-        )
-
-        # 使用相似度搜索获取所有该文件的文档
-        # 由于没有 get 方法，我们搜索一个通用的查询然后过滤
+        # 直接查询数据库删除该 file_id 的向量
         try:
-            # 直接查询数据库删除该 file_id 的向量
             import psycopg2
             from psycopg2.extras import RealDictCursor
 
-            conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+            conn = psycopg2.connect(
+                settings.POSTGRESQL_URL, cursor_factory=RealDictCursor
+            )
             cursor = conn.cursor()
 
             # 从 langchain_pg_embedding 表删除
-            cursor.execute("""
+            cursor.execute(
+                """
                 DELETE FROM langchain_pg_embedding
                 WHERE cmetadata->>'file_id' = %s
                   AND collection_id = (SELECT uuid FROM langchain_pg_collection WHERE name = %s)
-            """, (file_id, self.collection_name))
+            """,
+                (file_id, self.collection_name),
+            )
 
             deleted_count = cursor.rowcount
             conn.commit()
@@ -275,11 +249,14 @@ class VectorizationService:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE user_files
                 SET vectorization_status = %s
                 WHERE id = %s
-            """, (status, file_id))
+            """,
+                (status, file_id),
+            )
             conn.commit()
             logger.debug(f"文件状态更新: file_id={file_id}, status={status}")
         finally:
@@ -287,11 +264,7 @@ class VectorizationService:
             conn.close()
 
     async def _update_file_record(
-        self,
-        file_id: str,
-        content_hash: str,
-        summary: str,
-        chunk_count: int
+        self, file_id: str, content_hash: str, summary: str, chunk_count: int
     ):
         """更新文件记录"""
         import psycopg2
@@ -301,14 +274,17 @@ class VectorizationService:
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE user_files
                 SET content_hash = %s,
                     document_summary = %s,
                     chunk_count = %s,
                     last_vectorized_at = NOW()
                 WHERE id = %s
-            """, (content_hash, summary, chunk_count, file_id))
+            """,
+                (content_hash, summary, chunk_count, file_id),
+            )
             conn.commit()
         finally:
             cursor.close()

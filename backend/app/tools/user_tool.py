@@ -1,19 +1,13 @@
 """用户记忆工具 - LangGraph Runtime Store 集成"""
-from typing import Any, Optional
+
 from langchain.tools import tool
-from langchain_core.runnables import RunnableConfig
 
 from ..memory.memory_service import memory_service
-from ..memory.memory_schema import MemoryCategory
 
 
 # 保存对话记忆工具
 @tool
-def save_conversation_memory(
-    question: str,
-    answer: str,
-    user_id: str
-) -> str:
+def save_conversation_memory(question: str, answer: str, user_id: str) -> str:
     """保存对话内容到用户长期记忆
 
     Args:

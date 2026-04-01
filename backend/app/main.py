@@ -3,14 +3,12 @@ FastAPI 主应用入口
 """
 
 import logging
-from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.api.v1 import chat, files
@@ -35,16 +33,20 @@ async def lifespan(app: FastAPI):
         # 测试 PostgreSQL 连接
         try:
             import psycopg2
+
             conn = psycopg2.connect(settings.POSTGRESQL_URL)
             conn.close()
-            logger.info(f"✅ PostgreSQL 连接成功")
+            logger.info("✅ PostgreSQL 连接成功")
         except Exception as e:
             logger.warning(f"⚠️  PostgreSQL 连接失败: {e}")
-            logger.info("💡 提示: 确保 PostgreSQL 已安装 pgvector 扩展: CREATE EXTENSION IF NOT EXISTS vector;")
+            logger.info(
+                "💡 提示: 确保 PostgreSQL 已安装 pgvector 扩展: CREATE EXTENSION IF NOT EXISTS vector;"
+            )
 
         # 生成 LangGraph 工作流程图
         try:
             from app.agent.workflow_diagram import generate_workflow_diagram
+
             generate_workflow_diagram()
 
         except Exception as e:
@@ -72,12 +74,16 @@ app = FastAPI(
 
 
 # CORS 中间件
-allow_origins = ["*"] if settings.DEBUG else [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-]
+allow_origins = (
+    ["*"]
+    if settings.DEBUG
+    else [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ]
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,11 +101,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logger.warning(f"Validation error: {exc}")
     # 只返回可序列化的错误详情，避免包含 FormData 等对象
     error_details = [
-        {
-            "loc": error["loc"],
-            "msg": error["msg"],
-            "type": error["type"]
-        }
+        {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
         for error in exc.errors()
     ]
     return JSONResponse(
@@ -114,7 +116,10 @@ async def general_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error", "message": str(exc) if settings.DEBUG else "服务器内部错误"},
+        content={
+            "detail": "Internal server error",
+            "message": str(exc) if settings.DEBUG else "服务器内部错误",
+        },
     )
 
 
@@ -123,14 +128,13 @@ app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(files.router, prefix="/api/v1", tags=["files"])
 
 
-
 @app.get("/")
 async def root():
     """健康检查"""
     return {
         "status": "ok",
         "version": "2.0.0",
-        "message": "Buddy-AI Backend is running"
+        "message": "Buddy-AI Backend is running",
     }
 
 

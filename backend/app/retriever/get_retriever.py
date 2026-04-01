@@ -1,17 +1,16 @@
 """
 向量检索器 - 使用 PostgreSQL+pgvector
 """
-from typing import Optional
-from ..config import settings
 
-from .embeddings_model import get_embeddings_model
 import logging
+from typing import Optional
+
+from .pgvector_store import get_retriever as get_pgvector_retriever
+from .pgvector_store import (
+    get_retriever_with_user_filter as get_pgvector_retriever_with_user_filter,
+)
 
 logger = logging.getLogger(__name__)
-
-# 使用 pgvector_store 的检索器
-from .pgvector_store import get_retriever as get_pgvector_retriever
-from .pgvector_store import get_retriever_with_user_filter as get_pgvector_retriever_with_user_filter
 
 
 def get_retriever(k: int = 4):

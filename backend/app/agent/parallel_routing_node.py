@@ -8,6 +8,7 @@ from ..prompt.prompt import ROUTING_DECISION_PROMPT
 
 logger = logging.getLogger(__name__)
 
+
 def parallel_routing_node(state: AgentState, config) -> dict:
     """决策节点 - 判断需要并行检索哪些来源"""
     messages = state.get("messages", [])
@@ -37,7 +38,4 @@ def parallel_route_condition(state: AgentState) -> List[Send]:
         # 没有需要检索的，直接生成响应
         return [Send("generate_response", {"question": state.get("question", "")})]
 
-    return [
-        Send(c["source"], {"question": c["query"]})
-        for c in classifications
-    ]
+    return [Send(c["source"], {"question": c["query"]}) for c in classifications]

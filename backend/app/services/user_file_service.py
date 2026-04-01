@@ -2,7 +2,6 @@
 用户文件服务 - 处理文件的 PostgreSQL 存储和检索
 """
 
-import io
 import logging
 import uuid
 from pathlib import Path
@@ -29,8 +28,7 @@ class UserFileService:
         """连接到 PostgreSQL 数据库"""
         try:
             self.connection = psycopg2.connect(
-                settings.POSTGRESQL_URL,
-                cursor_factory=RealDictCursor
+                settings.POSTGRESQL_URL, cursor_factory=RealDictCursor
             )
             logger.info("成功连接到 PostgreSQL 数据库")
         except Exception as e:
@@ -47,7 +45,9 @@ class UserFileService:
         self._ensure_connection()
         return self.connection.cursor()
 
-    def save_file(self, user_id: str, original_filename: str, file_content: bytes, file_type: str) -> str:
+    def save_file(
+        self, user_id: str, original_filename: str, file_content: bytes, file_type: str
+    ) -> str:
         """
         保存用户文件到 PostgreSQL
 
@@ -68,13 +68,13 @@ class UserFileService:
             # 检查用户是否已上传同名文件
             cursor.execute(
                 "SELECT id FROM user_files WHERE user_id = %s AND original_filename = %s",
-                (user_id, original_filename)
+                (user_id, original_filename),
             )
             existing_file = cursor.fetchone()
 
             old_file_id = None
             if existing_file:
-                old_file_id = existing_file['id']
+                old_file_id = existing_file["id"]
                 logger.info(f"发现同名文件，删除旧文件和向量数据: {original_filename}")
 
                 # 【关键】先删除向量数据：使用统一collection，通过元数据过滤
@@ -82,11 +82,14 @@ class UserFileService:
                     from psycopg2.extras import RealDictCursor
                     import psycopg2
 
-                    vec_conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+                    vec_conn = psycopg2.connect(
+                        settings.POSTGRESQL_URL, cursor_factory=RealDictCursor
+                    )
                     vec_cursor = vec_conn.cursor()
 
                     # 删除该用户和文件ID的 embedding 数据（使用统一collection）
-                    vec_cursor.execute("""
+                    vec_cursor.execute(
+                        """
                         DELETE FROM langchain_pg_embedding
                         WHERE collection_id = (
                             SELECT uuid FROM langchain_pg_collection
@@ -94,13 +97,17 @@ class UserFileService:
                         )
                         AND cmetadata->>'user_id' = %s
                         AND cmetadata->>'filename' = %s
-                    """, (settings.PGVECTOR_COLLECTION_NAME, user_id, original_filename))
+                    """,
+                        (settings.PGVECTOR_COLLECTION_NAME, user_id, original_filename),
+                    )
 
                     deleted_count = vec_cursor.rowcount
                     vec_conn.commit()
                     vec_cursor.close()
                     vec_conn.close()
-                    logger.info(f"已删除向量数据: 用户={user_id}, 文件={original_filename}, 记录数={deleted_count}")
+                    logger.info(
+                        f"已删除向量数据: 用户={user_id}, 文件={original_filename}, 记录数={deleted_count}"
+                    )
                 except Exception as e:
                     logger.warning(f"删除向量数据失败（可能尚不存在）: {e}")
 
@@ -112,10 +119,21 @@ class UserFileService:
             file_id = str(uuid.uuid4())
 
             # 保存新文件
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO user_files (id, user_id, original_filename, file_content, file_type, file_size, upload_time)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (file_id, user_id, original_filename, file_content, file_type, len(file_content), get_beijing_now()))
+            """,
+                (
+                    file_id,
+                    user_id,
+                    original_filename,
+                    file_content,
+                    file_type,
+                    len(file_content),
+                    get_beijing_now(),
+                ),
+            )
 
             self.connection.commit()
             logger.info(f"文件保存成功: {file_id}")
@@ -145,24 +163,24 @@ class UserFileService:
                        is_public, content_hash, document_summary, chunk_count, last_vectorized_at, vectorization_status
                 FROM user_files WHERE id = %s
                 """,
-                (file_id,)
+                (file_id,),
             )
             row = cursor.fetchone()
 
             if row:
                 return UserFile(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    original_filename=row['original_filename'],
-                    file_type=row['file_type'],
-                    file_size=row['file_size'],
-                    upload_time=row['upload_time'],
-                    is_public=row.get('is_public', False),
-                    content_hash=row.get('content_hash'),
-                    document_summary=row.get('document_summary'),
-                    chunk_count=row.get('chunk_count', 0),
-                    last_vectorized_at=row.get('last_vectorized_at'),
-                    vectorization_status=row.get('vectorization_status', 'pending')
+                    id=row["id"],
+                    user_id=row["user_id"],
+                    original_filename=row["original_filename"],
+                    file_type=row["file_type"],
+                    file_size=row["file_size"],
+                    upload_time=row["upload_time"],
+                    is_public=row.get("is_public", False),
+                    content_hash=row.get("content_hash"),
+                    document_summary=row.get("document_summary"),
+                    chunk_count=row.get("chunk_count", 0),
+                    last_vectorized_at=row.get("last_vectorized_at"),
+                    vectorization_status=row.get("vectorization_status", "pending"),
                 )
             return None
 
@@ -184,20 +202,21 @@ class UserFileService:
 
         try:
             cursor.execute(
-                "SELECT file_content FROM user_files WHERE id = %s",
-                (file_id,)
+                "SELECT file_content FROM user_files WHERE id = %s", (file_id,)
             )
             row = cursor.fetchone()
 
             if row:
-                return row['file_content']
+                return row["file_content"]
             return None
 
         except Exception as e:
             logger.error(f"获取文件内容失败: {e}")
             raise
 
-    def get_file_by_user_and_filename(self, user_id: str, original_filename: str) -> Optional[UserFile]:
+    def get_file_by_user_and_filename(
+        self, user_id: str, original_filename: str
+    ) -> Optional[UserFile]:
         """
         通过用户ID和文件名获取文件
 
@@ -218,24 +237,24 @@ class UserFileService:
                 FROM user_files
                 WHERE user_id = %s AND original_filename = %s
                 """,
-                (user_id, original_filename)
+                (user_id, original_filename),
             )
             row = cursor.fetchone()
 
             if row:
                 return UserFile(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    original_filename=row['original_filename'],
-                    file_type=row['file_type'],
-                    file_size=row['file_size'],
-                    upload_time=row['upload_time'],
-                    is_public=row.get('is_public', False),
-                    content_hash=row.get('content_hash'),
-                    document_summary=row.get('document_summary'),
-                    chunk_count=row.get('chunk_count', 0),
-                    last_vectorized_at=row.get('last_vectorized_at'),
-                    vectorization_status=row.get('vectorization_status', 'pending')
+                    id=row["id"],
+                    user_id=row["user_id"],
+                    original_filename=row["original_filename"],
+                    file_type=row["file_type"],
+                    file_size=row["file_size"],
+                    upload_time=row["upload_time"],
+                    is_public=row.get("is_public", False),
+                    content_hash=row.get("content_hash"),
+                    document_summary=row.get("document_summary"),
+                    chunk_count=row.get("chunk_count", 0),
+                    last_vectorized_at=row.get("last_vectorized_at"),
+                    vectorization_status=row.get("vectorization_status", "pending"),
                 )
             return None
 
@@ -264,24 +283,24 @@ class UserFileService:
                 WHERE user_id = %s
                 ORDER BY upload_time DESC
                 """,
-                (user_id,)
+                (user_id,),
             )
             rows = cursor.fetchall()
 
             return [
                 UserFile(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    original_filename=row['original_filename'],
-                    file_type=row['file_type'],
-                    file_size=row['file_size'],
-                    upload_time=row['upload_time'],
-                    is_public=row.get('is_public', False),
-                    content_hash=row.get('content_hash'),
-                    document_summary=row.get('document_summary'),
-                    chunk_count=row.get('chunk_count', 0),
-                    last_vectorized_at=row.get('last_vectorized_at'),
-                    vectorization_status=row.get('vectorization_status', 'pending')
+                    id=row["id"],
+                    user_id=row["user_id"],
+                    original_filename=row["original_filename"],
+                    file_type=row["file_type"],
+                    file_size=row["file_size"],
+                    upload_time=row["upload_time"],
+                    is_public=row.get("is_public", False),
+                    content_hash=row.get("content_hash"),
+                    document_summary=row.get("document_summary"),
+                    chunk_count=row.get("chunk_count", 0),
+                    last_vectorized_at=row.get("last_vectorized_at"),
+                    vectorization_status=row.get("vectorization_status", "pending"),
                 )
                 for row in rows
             ]
@@ -307,10 +326,7 @@ class UserFileService:
             self._delete_vector_data(file_id)
 
             # 删除文件记录
-            cursor.execute(
-                "DELETE FROM user_files WHERE id = %s",
-                (file_id,)
-            )
+            cursor.execute("DELETE FROM user_files WHERE id = %s", (file_id,))
 
             self.connection.commit()
 
@@ -339,21 +355,15 @@ class UserFileService:
 
         try:
             # 获取用户的所有文件ID
-            cursor.execute(
-                "SELECT id FROM user_files WHERE user_id = %s",
-                (user_id,)
-            )
+            cursor.execute("SELECT id FROM user_files WHERE user_id = %s", (user_id,))
             rows = cursor.fetchall()
 
             # 删除每个文件的向量数据
             for row in rows:
-                self._delete_vector_data(row['id'])
+                self._delete_vector_data(row["id"])
 
             # 删除文件记录
-            cursor.execute(
-                "DELETE FROM user_files WHERE user_id = %s",
-                (user_id,)
-            )
+            cursor.execute("DELETE FROM user_files WHERE user_id = %s", (user_id,))
 
             self.connection.commit()
 
@@ -391,7 +401,9 @@ class UserFileService:
                 # 删除这些文档
                 if doc_ids_to_delete:
                     vector_store.delete(ids=doc_ids_to_delete)
-                    logger.info(f"从向量数据库删除了 {len(doc_ids_to_delete)} 个文档片段")
+                    logger.info(
+                        f"从向量数据库删除了 {len(doc_ids_to_delete)} 个文档片段"
+                    )
 
         except Exception as e:
             logger.error(f"删除向量数据失败: {e}")
@@ -465,12 +477,12 @@ class UserFileService:
 
             return [
                 UserFile(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    original_filename=row['original_filename'],
-                    file_type=row['file_type'],
-                    file_size=row['file_size'],
-                    upload_time=row['upload_time']
+                    id=row["id"],
+                    user_id=row["user_id"],
+                    original_filename=row["original_filename"],
+                    file_type=row["file_type"],
+                    file_size=row["file_size"],
+                    upload_time=row["upload_time"],
                 )
                 for row in rows
             ]

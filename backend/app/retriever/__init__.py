@@ -7,5 +7,5 @@ __all__ = [
     "get_retriever",
     "get_retriever_with_user_filter",
     "get_embeddings_model",
-    "delete_user_vector_data"
+    "delete_user_vector_data",
 ]

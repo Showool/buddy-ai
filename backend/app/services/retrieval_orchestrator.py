@@ -1,6 +1,7 @@
 """
 检索编排服务 - 整合向量检索、全文搜索、重排序（同步版本）
 """
+
 import logging
 from typing import List
 from dataclasses import dataclass
@@ -35,9 +36,10 @@ class RetrievalOrchestrator:
         k: int = 4,
         use_fulltext: bool = True,
         use_rerank: bool = True,
-        rerank_threshold: int = 3
+        rerank_threshold: int = 3,
     ) -> RetrievalResult:
         import time
+
         start_time = time.time()
 
         logger.info(f"开始检索: query='{query[:50]}...', user_id={user_id}, k={k}")
@@ -59,7 +61,7 @@ class RetrievalOrchestrator:
             vector_result.scores,
             fulltext_result.documents,
             fulltext_result.scores,
-            k=k * 2
+            k=k * 2,
         )
 
         retrieval_time_ms = (time.time() - start_time) * 1000
@@ -67,21 +69,16 @@ class RetrievalOrchestrator:
             documents=fused.documents[:k],
             scores=fused.scores[:k],
             sources=["rrf_fused"] * len(fused.documents[:k]),
-            metadata={"rerank_triggered": False, "retrieval_time_ms": retrieval_time_ms}
+            metadata={
+                "rerank_triggered": False,
+                "retrieval_time_ms": retrieval_time_ms,
+            },
         )
-            
 
-    def _retrieve_vector(
-        self,
-        query: str,
-        user_id: str,
-        k: int
-    ) -> RetrievalResult:
+    def _retrieve_vector(self, query: str, user_id: str, k: int) -> RetrievalResult:
         vector_store = pgvector_singleton.get_vector_store()
         docs = vector_store.similarity_search_with_score(
-            query=query,
-            k=k,
-            filter={"user_id": user_id, "doc_type": "chunk"}
+            query=query, k=k, filter={"user_id": user_id, "doc_type": "chunk"}
         )
 
         documents = [doc for doc, _ in docs]
@@ -90,27 +87,22 @@ class RetrievalOrchestrator:
         if documents:
             logger.info(f"向量检索成功: 返回 {len(documents)} 个文档")
             for i, (doc, score) in enumerate(docs[:3]):
-                logger.debug(f"  文档{i}: filename={doc.metadata.get('filename')}, score={score}")
+                logger.debug(
+                    f"  文档{i}: filename={doc.metadata.get('filename')}, score={score}"
+                )
         else:
             logger.warning(f"向量检索未找到结果: query='{query}', user_id={user_id}")
 
         return RetrievalResult(
-            documents=documents,
-            scores=scores,
-            sources=["vector"] * len(documents)
+            documents=documents, scores=scores, sources=["vector"] * len(documents)
         )
 
-    def _retrieve_fulltext(
-        self,
-        query: str,
-        user_id: str,
-        k: int
-    ) -> RetrievalResult:
+    def _retrieve_fulltext(self, query: str, user_id: str, k: int) -> RetrievalResult:
         result = fulltext_search_service.search(query, user_id, k)
         return RetrievalResult(
             documents=result.documents,
             scores=result.scores,
-            sources=["fulltext"] * len(result.documents)
+            sources=["fulltext"] * len(result.documents),
         )
 
     def _rrf_fusion(
@@ -120,7 +112,7 @@ class RetrievalOrchestrator:
         docs2: List[Document],
         scores2: List[float],
         k: int,
-        rank_k: int = 60
+        rank_k: int = 60,
     ) -> RetrievalResult:
         doc_scores = {}
 
@@ -137,7 +129,7 @@ class RetrievalOrchestrator:
         sorted_docs = sorted(
             [(doc, score) for doc, score in doc_scores.items()],
             key=lambda x: x[1],
-            reverse=True
+            reverse=True,
         )
 
         all_docs = docs1 + docs2
@@ -154,7 +146,7 @@ class RetrievalOrchestrator:
         return RetrievalResult(
             documents=final_docs,
             scores=final_scores,
-            sources=["rrf_fused"] * len(final_docs)
+            sources=["rrf_fused"] * len(final_docs),
         )
 
 

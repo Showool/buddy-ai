@@ -1,7 +1,6 @@
 import logging
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.types import Send
 from ..retriever.embeddings_model import get_embeddings_model
 from ..config import settings
 from langgraph.checkpoint.redis import RedisSaver
@@ -22,10 +21,16 @@ logger = logging.getLogger(__name__)
 
 def get_graph():
     """构建并行架构图"""
-    with (RedisSaver.from_conn_string(settings.REDIS_URL) as checkpointer,
-          PostgresStore.from_conn_string(settings.POSTGRESQL_URL,
-                                         index={"embed": get_embeddings_model(),
-                                               "dims": settings.EMBEDDING_DIMENSIONS}) as store):
+    with (
+        RedisSaver.from_conn_string(settings.REDIS_URL) as checkpointer,
+        PostgresStore.from_conn_string(
+            settings.POSTGRESQL_URL,
+            index={
+                "embed": get_embeddings_model(),
+                "dims": settings.EMBEDDING_DIMENSIONS,
+            },
+        ) as store,
+    ):
 
         store.setup()
 
@@ -38,7 +43,9 @@ def get_graph():
         workflow.add_node("grade_documents", grade_documents)
         workflow.add_node("rewrite_question", rewrite_question)
         workflow.add_node("generate_response", generate_response)
-        workflow.add_node("tool_node", ToolNode([tavily_search, save_conversation_memory]))
+        workflow.add_node(
+            "tool_node", ToolNode([tavily_search, save_conversation_memory])
+        )
 
         # 边定义
         workflow.add_edge(START, "route")
@@ -47,13 +54,12 @@ def get_graph():
         workflow.add_conditional_edges(
             "route",
             parallel_route_condition,
-            ["memory_retrieval", "document_retrieval", "generate_response"]
+            ["memory_retrieval", "document_retrieval", "generate_response"],
         )
 
         # 并行节点 → fan-in
         workflow.add_edge("document_retrieval", "grade_documents")
         workflow.add_edge("memory_retrieval", "generate_response")
-
 
         # 评分 → 生成响应 OR 重写
         workflow.add_conditional_edges(
@@ -61,17 +67,15 @@ def get_graph():
             grade_routing_condition,
             {
                 "generate_response": "generate_response",
-                "rewrite_question": "rewrite_question"
-            }
+                "rewrite_question": "rewrite_question",
+            },
         )
 
         workflow.add_edge("rewrite_question", "document_retrieval")
 
         # 生成响应 → 工具 OR 结束
         workflow.add_conditional_edges(
-            "generate_response",
-            tools_condition,
-            {"tools": "tool_node", END: END}
+            "generate_response", tools_condition, {"tools": "tool_node", END: END}
         )
 
         workflow.add_edge("tool_node", END)

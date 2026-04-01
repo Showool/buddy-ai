@@ -3,6 +3,7 @@ PostgreSQL 向量存储模块 - 使用 PGVector 扩展，支持用户过滤
 
 使用统一 Collection 设计，通过 metadata 过滤实现多租户
 """
+
 from langchain_postgres import PGVector
 
 from .embeddings_model import get_embeddings_model
@@ -57,8 +58,5 @@ def get_retriever_with_user_filter(user_id: str, k: int = 4):
 
     # PGVector 支持通过元数据过滤
     return vector_store.as_retriever(
-        search_kwargs={
-            "k": k,
-            "filter": {"user_id": user_id}
-        }
+        search_kwargs={"k": k, "filter": {"user_id": user_id}}
     )

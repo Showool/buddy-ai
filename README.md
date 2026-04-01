@@ -239,30 +239,6 @@ CREATE DATABASE buddy_ai;
 
 ### 运行
 
-#### 使用启动脚本（推荐）
-
-**Windows:**
-```bash
-# 后端
-.\backend\start_server.bat
-
-# 前端（新终端）
-cd frontend
-npm run dev
-```
-
-**Linux/macOS:**
-```bash
-# 后端
-./backend/start_server.sh
-
-# 前端（新终端）
-cd frontend
-npm run dev
-```
-
-#### 手动运行
-
 **重要：启动前必须激活 conda 环境！**
 
 1. 激活 conda 环境
@@ -276,13 +252,13 @@ cd backend
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-3. 启动前端（新终端）
+3. 启动前端
 ```bash
 cd frontend
 npx vite
 ```
 
-#### 直接指定 Python 路径（跨平台兼容）
+**直接指定 Python 路径（跨平台兼容）**
 
 如果不想每次激活 conda 环境，可以直接指定 Python 路径：
 

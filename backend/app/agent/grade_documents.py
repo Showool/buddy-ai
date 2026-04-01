@@ -33,8 +33,10 @@ def grade_documents(state: AgentState) -> dict:
     context = "\n\n".join([d.page_content for d in docs])
     prompt = GRADE_PROMPT.format(question=question, context=context)
 
-    response: GradeDocuments = get_llm().with_structured_output(GradeDocuments).invoke(
-        [{"role": "user", "content": prompt}]
+    response: GradeDocuments = (
+        get_llm()
+        .with_structured_output(GradeDocuments)
+        .invoke([{"role": "user", "content": prompt}])
     )
 
     score = response.binary_score

@@ -1,18 +1,19 @@
 """
 文档处理工具 - 智能切分和元数据处理
 """
+
 import hashlib
-from pathlib import Path
 from typing import List
 from dataclasses import dataclass
 
 from langchain_community.document_loaders import (
-    PyMuPDFLoader, UnstructuredMarkdownLoader,
-    Docx2txtLoader, TextLoader, CSVLoader
+    PyMuPDFLoader,
+    UnstructuredMarkdownLoader,
+    Docx2txtLoader,
+    TextLoader,
+    CSVLoader,
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-from app.config import settings
 
 
 @dataclass
@@ -29,33 +30,49 @@ def compute_content_hash(content: bytes) -> str:
 
 def get_document_loader(file_path: str, file_type: str):
     loaders = {
-        'pdf': PyMuPDFLoader,
-        'md': UnstructuredMarkdownLoader,
-        'docx': Docx2txtLoader,
-        'txt': TextLoader,
-        'csv': CSVLoader
+        "pdf": PyMuPDFLoader,
+        "md": UnstructuredMarkdownLoader,
+        "docx": Docx2txtLoader,
+        "txt": TextLoader,
+        "csv": CSVLoader,
     }
     loader_class = loaders.get(file_type)
     if loader_class == TextLoader:
-        return loader_class(file_path, encoding='utf-8')
+        return loader_class(file_path, encoding="utf-8")
     return loader_class(file_path) if loader_class else None
 
 
 def get_smart_splitter(file_type: str):
     filetype_config = {
-        'pdf': {'separators': ['\n\n', '\n', '. ', '。', ' ', ''], 'chunk_size': 800, 'chunk_overlap': 150},
-        'md': {'separators': ['\n## ', '\n# ', '\n\n', '\n', ' ', ''], 'chunk_size': 1200, 'chunk_overlap': 200},
-        'docx': {'separators': ['\n\n', '\n', '. ', '。', ' ', ''], 'chunk_size': 800, 'chunk_overlap': 150},
-        'txt': {'separators': ['\n\n', '\n', '. ', '。', ' ', ''], 'chunk_size': 1000, 'chunk_overlap': 200},
-        'csv': {'separators': ['\n', ','], 'chunk_size': 500, 'chunk_overlap': 0}
+        "pdf": {
+            "separators": ["\n\n", "\n", ". ", "。", " ", ""],
+            "chunk_size": 800,
+            "chunk_overlap": 150,
+        },
+        "md": {
+            "separators": ["\n## ", "\n# ", "\n\n", "\n", " ", ""],
+            "chunk_size": 1200,
+            "chunk_overlap": 200,
+        },
+        "docx": {
+            "separators": ["\n\n", "\n", ". ", "。", " ", ""],
+            "chunk_size": 800,
+            "chunk_overlap": 150,
+        },
+        "txt": {
+            "separators": ["\n\n", "\n", ". ", "。", " ", ""],
+            "chunk_size": 1000,
+            "chunk_overlap": 200,
+        },
+        "csv": {"separators": ["\n", ","], "chunk_size": 500, "chunk_overlap": 0},
     }
 
     config = {
-        'chunk_size': 1000,
-        'chunk_overlap': 200,
-        'length_function': len,
-        'add_start_index': True,
-        **filetype_config.get(file_type, {})
+        "chunk_size": 1000,
+        "chunk_overlap": 200,
+        "length_function": len,
+        "add_start_index": True,
+        **filetype_config.get(file_type, {}),
     }
 
     return RecursiveCharacterTextSplitter(**config)
@@ -67,7 +84,7 @@ def process_document(
     file_content: bytes,
     file_id: str,
     user_id: str,
-    original_filename: str
+    original_filename: str,
 ) -> dict:
     loader = get_document_loader(file_path, file_type)
     if not loader:
@@ -79,22 +96,24 @@ def process_document(
     content_hash = compute_content_hash(file_content)
 
     for idx, chunk in enumerate(chunks):
-        chunk.metadata.update({
-            'file_id': file_id,
-            'user_id': user_id,
-            'filename': original_filename,
-            'doc_type': 'chunk',
-            'chunk_index': idx,
-            'content_hash': content_hash
-        })
+        chunk.metadata.update(
+            {
+                "file_id": file_id,
+                "user_id": user_id,
+                "filename": original_filename,
+                "doc_type": "chunk",
+                "chunk_index": idx,
+                "content_hash": content_hash,
+            }
+        )
 
     summary = _generate_summary(chunks)
 
     return {
-        'documents': chunks,
-        'summary': summary,
-        'chunk_count': len(chunks),
-        'content_hash': content_hash
+        "documents": chunks,
+        "summary": summary,
+        "chunk_count": len(chunks),
+        "content_hash": content_hash,
     }
 
 
