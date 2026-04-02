@@ -274,30 +274,30 @@ async def delete_file(
         )
 
     # 删除向量数据（统一 Collection 架构 - 按 file_id 过滤）
-    if settings.VECTOR_DB_TYPE == "postgresql":
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
 
-        conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
-        cursor = conn.cursor()
+    conn = psycopg2.connect(settings.POSTGRESQL_URL, cursor_factory=RealDictCursor)
+    cursor = conn.cursor()
 
-        try:
-            # 从统一 collection 中删除该文件的向量数据
-            cursor.execute(
-                """
-                DELETE FROM langchain_pg_embedding
-                WHERE cmetadata->>'file_id' = %s
-                  AND collection_id = (SELECT uuid FROM langchain_pg_collection WHERE name = %s)
-            """,
-                (file_id, settings.PGVECTOR_COLLECTION_NAME),
-            )
+    try:
+        # 从统一 collection 中删除该文件的向量数据
+        cursor.execute(
+            """
+            DELETE FROM langchain_pg_embedding
+            WHERE cmetadata->>'file_id' = %s
+                AND collection_id = (SELECT uuid FROM langchain_pg_collection WHERE name = %s)
+        """,
+            (file_id, settings.PGVECTOR_COLLECTION_NAME),
+        )
 
-            deleted_count = cursor.rowcount
-            logger.info(f"删除了 {deleted_count} 个向量片段")
-            conn.commit()
-        finally:
-            cursor.close()
-            conn.close()
+        deleted_count = cursor.rowcount
+        logger.info(f"删除了 {deleted_count} 个向量片段")
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+        
 
     # 删除文件记录
     deleted = user_file_service.delete_file(file_id)

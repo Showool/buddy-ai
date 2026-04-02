@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-v4"
     EMBEDDING_DIMENSIONS: int = 1024
 
+    # ========== RAG 检索配置 ==========
+    RAG_SEARCH_MODE: str = "hybrid"  # embedding / keywords / hybrid
+    RAG_VECTOR_TOP_K: int = 4
+    RAG_MIN_SIMILARITY: float = 0.5
+    RAG_DIRECT_RETURN_THRESHOLD: float = 0.9
+    RAG_RRF_K: int = 60
+    RAG_VECTOR_TIMEOUT: float = 5.0
+    RAG_FULLTEXT_TIMEOUT: float = 3.0
+
     # ========== Agent 配置 ==========
     MAX_TOOL_CALLS: int = 3
     MAX_RETRIES: int = 3
