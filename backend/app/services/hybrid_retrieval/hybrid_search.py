@@ -6,7 +6,7 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, Future
 
 from app.services.hybrid_retrieval.config import retrieval_config
 from app.services.hybrid_retrieval.vector_search import vector_search, VectorResult
@@ -132,7 +132,9 @@ class HybridRetrieval:
         vector_timeout = self.config.vector_timeout
         fulltext_timeout = self.config.fulltext_timeout
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        # 使用 wait=False 避免 executor.shutdown 阻塞在未完成的任务上
+        executor = ThreadPoolExecutor(max_workers=2)
+        try:
             # 提交两个检索任务
             vec_future = executor.submit(
                 self.vector_searcher, query, user_id, top_k * 2, min_similarity
@@ -147,6 +149,7 @@ class HybridRetrieval:
                 logger.debug(f"向量检索成功，返回 {len(vector_results)} 个结果")
             except TimeoutError:
                 logger.warning(f"向量检索超时（>{vector_timeout}秒），使用空结果降级")
+                vec_future.cancel()
                 vector_results = []
             except Exception as e:
                 logger.error(f"向量检索失败: {e}，使用空结果降级")
@@ -158,10 +161,14 @@ class HybridRetrieval:
                 logger.debug(f"全文检索成功，返回 {len(fulltext_results)} 个结果")
             except TimeoutError:
                 logger.warning(f"全文检索超时（>{fulltext_timeout}秒），使用空结果降级")
+                ft_future.cancel()
                 fulltext_results = []
             except Exception as e:
                 logger.error(f"全文检索失败: {e}，使用空结果降级")
                 fulltext_results = []
+        finally:
+            # wait=False: 不等待仍在运行的任务，避免阻塞
+            executor.shutdown(wait=False)
 
         # ===== 记录降级状态 =====
         retrieval_status = []
@@ -173,16 +180,33 @@ class HybridRetrieval:
         if retrieval_status:
             logger.warning(f"混合检索降级模式: {', '.join(retrieval_status)}")
 
-        # ===== 空结果处理：单边检索 =====
-        # 如果向量检索失败，使用全文检索结果
+        # ===== 降级处理：直接使用已有结果，不重新检索 =====
         if not vector_results and fulltext_results:
             logger.info("降级模式：仅使用全文检索结果")
-            return self._fulltext_only(query, user_id, top_k)
+            max_score = max((r.score for r in fulltext_results), default=1.0)
+            return [
+                RetrievalItem(
+                    doc_id=r.doc_id,
+                    content=r.content,
+                    metadata=r.metadata,
+                    similarity=r.score / max_score if max_score > 0 else 0,
+                    source="fulltext",
+                )
+                for r in fulltext_results[:top_k]
+            ]
 
-        # 如果全文检索失败，使用向量检索结果
         if not fulltext_results and vector_results:
             logger.info("降级模式：仅使用向量检索结果")
-            return self._vector_only(query, user_id, top_k, min_similarity)
+            return [
+                RetrievalItem(
+                    doc_id=r.doc.metadata.get("chunk_id", ""),
+                    content=r.doc.page_content,
+                    metadata=r.doc.metadata,
+                    similarity=r.score,
+                    source="vector",
+                )
+                for r in vector_results[:top_k]
+            ]
 
         # 如果两者都失败，返回空结果
         if not vector_results and not fulltext_results:

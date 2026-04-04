@@ -76,8 +76,15 @@ class Settings(BaseSettings):
     LLM_STREAM: bool = True
 
     # ========== Embedding 配置 ==========
+    EMBEDDING_PROVIDER: str = "huggingface"  # dashscope / huggingface
     EMBEDDING_MODEL: str = "text-embedding-v4"
     EMBEDDING_DIMENSIONS: int = 1024
+
+    # ========== HuggingFace 本地模型配置 ==========
+    HF_MODEL_NAME: str = "Qwen/Qwen3-Embedding-8B"
+    MODELS_DIR: str = "./local_models"
+    HF_DEVICE: str = "cpu"  # auto / cpu / cuda
+    HF_TRUST_REMOTE_CODE: bool = True
 
     # ========== RAG 检索配置 ==========
     RAG_SEARCH_MODE: str = "hybrid"  # embedding / keywords / hybrid

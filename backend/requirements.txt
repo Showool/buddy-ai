@@ -19,6 +19,13 @@ langchain-text-splitters
 dashscope==1.25.9
 pgvector==0.3.6
 
+# ========== HuggingFace ==========
+langchain-huggingface==1.2.1
+huggingface-hub==1.7.2
+transformers==5.3.0
+torch==2.6.0
+sentence-transformers==5.2.2
+
 # ========== LangGraph ==========
 langgraph==1.0.7
 langgraph-checkpoint==3.0.1

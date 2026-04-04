@@ -98,3 +98,6 @@ datasets/
 secrets.json
 credentials.json
 config.json
+
+.kiro/
+.hypothesis/
