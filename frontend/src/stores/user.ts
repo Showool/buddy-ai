@@ -1,29 +1,45 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import type { ThemeMode } from '@/types'
 
-export const useUserStore = defineStore('user', () => {
-  const userId = ref<string>('1')
-  const userName = ref<string>('用户')
-  const sidebarCollapsed = ref<boolean>(false)
+const USER_ID_KEY = 'buddy-ai-user-id'
+const THEME_KEY = 'buddy-ai-theme'
 
-  function setUserId(id: string) {
-    userId.value = id
-  }
+export const useUserStore = defineStore('user', {
+  state: () => ({
+    userId: '' as string,
+    theme: 'light' as ThemeMode,
+  }),
 
-  function setUserName(name: string) {
-    userName.value = name
-  }
+  actions: {
+    setUserId(id: string) {
+      this.userId = id
+      localStorage.setItem(USER_ID_KEY, id)
+    },
 
-  function toggleSidebar() {
-    sidebarCollapsed.value = !sidebarCollapsed.value
-  }
+    toggleTheme() {
+      this.theme = this.theme === 'light' ? 'dark' : 'light'
+      localStorage.setItem(THEME_KEY, this.theme)
+      this.applyTheme()
+    },
 
-  return {
-    userId,
-    userName,
-    sidebarCollapsed,
-    setUserId,
-    setUserName,
-    toggleSidebar,
-  }
+    applyTheme() {
+      if (this.theme === 'dark') {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    },
+
+    loadFromStorage() {
+      const savedUserId = localStorage.getItem(USER_ID_KEY)
+      if (savedUserId !== null) {
+        this.userId = savedUserId
+      }
+
+      const savedTheme = localStorage.getItem(THEME_KEY)
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        this.theme = savedTheme
+      }
+    },
+  },
 })
