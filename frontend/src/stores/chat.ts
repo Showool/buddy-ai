@@ -1,92 +1,87 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import type { Message, DebugInfo } from '@/types'
-import { MessageType, type WSMessage } from '@/types'
+import { reactive } from 'vue'
+import type { Message, Thread } from '@/types'
 
-export const useChatStore = defineStore('chat', () => {
-  const messages = ref<Message[]>([])
-  const isStreaming = ref(false)
-  const debugInfo = ref<DebugInfo[]>([])
-  const currentThreadId = ref<string | null>(null)
-  const debugPanelVisible = ref(false)
+export const useChatStore = defineStore('chat', {
+  state: () => ({
+    threads: reactive(new Map<string, Thread>()),
+    currentThreadId: null as string | null,
+    isStreaming: false,
+  }),
 
-  function addMessage(message: Message) {
-    messages.value.push(message)
-  }
+  actions: {
+    createThread(threadId: string, firstMessage: string) {
+      const now = Date.now()
+      const thread: Thread = {
+        threadId,
+        title: firstMessage.slice(0, 20),
+        messages: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+      this.threads.set(threadId, thread)
+      this.currentThreadId = threadId
+    },
 
-  function updateLastMessage(content: string) {
-    const last = messages.value[messages.value.length - 1]
-    if (last && last.role === 'assistant') {
-      last.content = content
-    }
-  }
+    switchThread(threadId: string) {
+      if (this.threads.has(threadId)) {
+        this.currentThreadId = threadId
+      }
+    },
 
-  function clearMessages() {
-    messages.value = []
-    debugInfo.value = []
-  }
+    getThreadList(): Thread[] {
+      return Array.from(this.threads.values()).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      )
+    },
 
-  function addDebugInfo(info: DebugInfo) {
-    debugInfo.value.push(info)
-  }
+    addMessage(threadId: string, message: Message) {
+      const thread = this.threads.get(threadId)
+      if (!thread) return
+      thread.messages.push(message)
+      thread.updatedAt = Date.now()
+    },
 
-  function clearDebug() {
-    debugInfo.value = []
-  }
+    appendToLastAIMessage(threadId: string, content: string) {
+      const thread = this.threads.get(threadId)
+      if (!thread) return
 
-  function handleWSMessage(data: WSMessage) {
-    switch (data.type) {
-      case MessageType.AGENT_STEP:
-        // 添加调试信息
-        debugInfo.value.push({
-          type: 'agent_step',
-          message_type: data.message_type,
-          role: getMessageRole(data.message_type),
-          content: data.content,
-          tool_calls: data.tool_calls,
-          node: data.node,
-        })
-        break
-      case MessageType.AGENT_COMPLETE:
-        // 添加最终回复
-        addMessage({
+      const lastMsg = thread.messages[thread.messages.length - 1]
+      if (lastMsg && lastMsg.role === 'assistant') {
+        lastMsg.content += content
+      } else {
+        const newMsg: Message = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           role: 'assistant',
-          content: data.final_answer,
-        })
-        currentThreadId.value = data.thread_id
-        isStreaming.value = false
-        break
-      case MessageType.ERROR:
-        console.error(data.message)
-        isStreaming.value = false
-        break
-    }
-  }
+          content,
+          timestamp: Date.now(),
+        }
+        thread.messages.push(newMsg)
+      }
+      thread.updatedAt = Date.now()
+    },
 
-  function getMessageRole(messageType: string): string {
-    switch (messageType) {
-      case 'HumanMessage':
-        return 'user'
-      case 'AIMessage':
-        return 'assistant'
-      case 'ToolMessage':
-        return 'tool'
-      default:
-        return 'unknown'
-    }
-  }
+    setFinalAnswer(threadId: string, content: string) {
+      const thread = this.threads.get(threadId)
+      if (!thread) return
 
-  return {
-    messages,
-    isStreaming,
-    debugInfo,
-    currentThreadId,
-    debugPanelVisible,
-    addMessage,
-    updateLastMessage,
-    clearMessages,
-    clearDebug,
-    addDebugInfo,
-    handleWSMessage,
-  }
+      const lastMsg = thread.messages[thread.messages.length - 1]
+      if (lastMsg && lastMsg.role === 'assistant') {
+        lastMsg.content = content
+      } else {
+        const newMsg: Message = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          role: 'assistant',
+          content,
+          timestamp: Date.now(),
+        }
+        thread.messages.push(newMsg)
+      }
+      thread.updatedAt = Date.now()
+    },
+
+    setStreaming(value: boolean) {
+      this.isStreaming = value
+    },
+  },
 })

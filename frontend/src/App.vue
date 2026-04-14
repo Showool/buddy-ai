@@ -1,16 +1,19 @@
 <template>
-  <div id="app">
-    <RouterView />
+  <div class="app-container">
+    <Sidebar />
+    <router-view />
   </div>
 </template>
 
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
-</script>
+import { onMounted } from 'vue'
+import { useUserStore } from '@/stores/user'
+import Sidebar from '@/components/Sidebar.vue'
 
-<style>
-#app {
-  width: 100%;
-  height: 100vh;
-}
-</style>
+const userStore = useUserStore()
+
+onMounted(() => {
+  userStore.loadFromStorage()
+  userStore.applyTheme()
+})
+</script>
