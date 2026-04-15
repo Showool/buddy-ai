@@ -101,3 +101,6 @@ config.json
 
 .kiro/
 .hypothesis/
+
+.claude/
+CLAUDE.md

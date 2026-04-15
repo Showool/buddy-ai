@@ -1,21 +1,23 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
-import ChatView from '@/views/ChatView.vue'
-
-const routes: RouteRecordRaw[] = [
-  {
-    path: '/',
-    name: 'chat',
-    component: ChatView,
-  },
-  {
-    path: '/:pathMatch(.*)*',
-    redirect: '/',
-  },
-]
+import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes,
+  history: createWebHistory(),
+  routes: [
+    {
+      path: '/',
+      name: 'Welcome',
+      component: () => import('../views/WelcomePage.vue'),
+    },
+    {
+      path: '/chat/:threadId',
+      name: 'Chat',
+      component: () => import('../views/ChatPage.vue'),
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/',
+    },
+  ],
 })
 
 export default router

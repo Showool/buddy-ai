@@ -1,123 +1,243 @@
 <template>
-  <div class="chat-input-container">
-    <div class="input-wrapper">
-      <!-- 输入框 -->
-      <el-input
-        v-model="inputMessage"
-        type="textarea"
-        :autosize="{ minRows: 1, maxRows: 8 }"
-        placeholder="输入您的问题... (Enter 发送, Shift+Enter 换行)"
-        :disabled="isStreaming"
-        @keydown="handleKeydown"
-        class="chat-input"
-      />
-
-      <!-- 发送按钮 -->
-      <el-button
-        type="primary"
-        circle
-        :icon="isStreaming ? Loading : Promotion"
-        :loading="isStreaming"
-        :disabled="!inputMessage.trim() || isStreaming"
-        class="send-button"
-        @click="handleSend"
-      />
+  <div class="chat-input-wrapper">
+    <div class="chat-input-container">
+      <div class="input-box">
+        <button
+          v-if="showAttach"
+          class="icon-btn attach-btn"
+          :disabled="disabled"
+          title="上传文件（支持 .txt .docx .md）"
+          @click="handleAttach"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".txt,.docx,.md"
+          style="display: none"
+          @change="handleFileChange"
+        />
+        <textarea
+          ref="textareaRef"
+          v-model="inputText"
+          :placeholder="placeholder"
+          :disabled="disabled"
+          rows="1"
+          @keydown="handleKeydown"
+          @input="autoResize"
+        />
+        <button
+          class="icon-btn send-btn"
+          :disabled="!canSend"
+          title="发送"
+          @click="handleSend"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useChatStore } from '@/stores/chat'
-import { useSessionStore } from '@/stores/session'
-import { useWebSocket } from '@/composables/useWebSocket'
-import { useUserStore } from '@/stores/user'
-import type { Message } from '@/types'
-import { Loading, Promotion } from '@element-plus/icons-vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { uploadFile, isFileAllowed } from '@/services/api'
 
-const chatStore = useChatStore()
-const sessionStore = useSessionStore()
-const userStore = useUserStore()
+interface Props {
+  placeholder?: string
+  disabled?: boolean
+  showAttach?: boolean
+  modelValue?: string
+  userId?: string
+}
 
-const inputMessage = ref('')
-const isStreaming = computed(() => chatStore.isStreaming)
-const userId = computed(() => userStore.userId)
+const props = withDefaults(defineProps<Props>(), {
+  placeholder: '有问题，尽管问',
+  disabled: false,
+  showAttach: true,
+  modelValue: '',
+  userId: '',
+})
 
-const { connect, sendMessage } = useWebSocket(userId.value)
-connect()
+const emit = defineEmits<{
+  send: [message: string]
+  'update:modelValue': [value: string]
+}>()
 
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
+const inputText = computed({
+  get: () => props.modelValue,
+  set: (value) => emit('update:modelValue', value),
+})
+
+const textareaRef = ref<HTMLTextAreaElement>()
+const fileInputRef = ref<HTMLInputElement>()
+const uploading = ref(false)
+
+const canSend = computed(
+  () => inputText.value.trim().length > 0 && !props.disabled && !uploading.value,
+)
+
+function autoResize() {
+  const el = textareaRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 150) + 'px'
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
     handleSend()
   }
 }
 
-async function handleSend() {
-  if (!inputMessage.value.trim() || isStreaming.value) return
-
-  const message = inputMessage.value.trim()
-  inputMessage.value = ''
-
-  const userMessage: Message = {
-    role: 'user',
-    content: message,
-  }
-
-  chatStore.addMessage(userMessage)
-
-  if (!sessionStore.currentSession?.title && sessionStore.currentSession?.thread_id) {
-    sessionStore.updateSessionTitle(
-      sessionStore.currentSession.thread_id,
-      message.slice(0, 30) + (message.length > 30 ? '...' : '')
-    )
-  }
-  if (sessionStore.currentSession?.thread_id) {
-    sessionStore.updateSessionMessageCount(sessionStore.currentSession.thread_id)
-  }
-
-  chatStore.isStreaming = true
-  sendMessage(message, sessionStore.currentSession?.thread_id)
+function handleSend() {
+  if (!canSend.value) return
+  const message = inputText.value.trim()
+  inputText.value = ''
+  nextTick(() => autoResize())
+  emit('send', message)
 }
+
+function handleAttach() {
+  if (props.disabled || uploading.value) return
+  fileInputRef.value?.click()
+}
+
+async function handleFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+
+  const file = input.files[0]
+  input.value = ''
+
+  if (!props.userId) {
+    ElMessage.warning('请先在侧边栏设置中配置 User ID')
+    return
+  }
+  if (!isFileAllowed(file.name)) {
+    ElMessage.error('仅支持 .txt、.docx、.md 格式的文件')
+    return
+  }
+
+  uploading.value = true
+  try {
+    await uploadFile(file, props.userId, 1)
+    ElMessage.success(`文件 ${file.name} 上传成功`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '上传失败'
+    ElMessage.error(msg)
+  } finally {
+    uploading.value = false
+  }
+}
+
+onMounted(() => autoResize())
 </script>
 
 <style scoped>
-.chat-input-container {
-  padding: 16px;
-  background: var(--el-bg-color-overlay);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid var(--el-border-color);
+.chat-input-wrapper {
+  padding: 16px 16px 28px;
+  background-color: var(--el-bg-color);
+  flex-shrink: 0;
 }
 
-.input-wrapper {
+.chat-input-container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.input-box {
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: 900px;
-  margin: 0 auto;
-  background: var(--el-bg-color);
-  border-radius: 16px;
   border: 1px solid var(--el-border-color);
-  padding: 4px;
+  border-radius: 26px;
+  padding: 8px 12px;
+  background-color: var(--el-bg-color-overlay, var(--el-bg-color));
+  transition: border-color 0.2s;
 }
 
-.input-wrapper:deep(.el-textarea__inner) {
-  padding-right: 12px;
-  padding-left: 8px;
-  padding-top: 12px;
-  padding-bottom: 12px;
+.input-box:focus-within {
+  border-color: var(--el-color-primary);
+}
+
+.input-box textarea {
+  flex: 1;
   border: none;
-  border-radius: 12px;
-  font-size: 14px;
-  min-height: 60px;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  color: var(--el-text-color-primary);
+  font-family: inherit;
+  min-height: 24px;
+  max-height: 150px;
+  padding: 4px 0;
 }
 
-.send-button {
-  background: linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%);
-  border-color: transparent;
+.input-box textarea::placeholder {
+  color: var(--el-text-color-placeholder);
 }
 
-.send-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ffaa66 0%, #ff7b7b 100%);
+.input-box textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.2s, color 0.2s;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+}
+
+.icon-btn:hover {
+  background-color: var(--el-fill-color-light);
+  color: var(--el-text-color-primary);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.send-btn {
+  background-color: var(--el-text-color-primary);
+  color: var(--el-bg-color);
+}
+
+.send-btn:hover {
+  opacity: 0.85;
+}
+
+.send-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 </style>

@@ -1,35 +1,23 @@
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
-import AutoImport from 'unplugin-auto-import/vite'
-import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 export default defineConfig({
-  plugins: [
-    vue(),
-    AutoImport({
-      resolvers: [ElementPlusResolver()],
-    }),
-    Components({
-      resolvers: [ElementPlusResolver()],
-    }),
-  ],
+  plugins: [vue()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   server: {
-    port: 3000,
     proxy: {
-      '/api': {
+      '/agent': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true,
+      '/upload_file': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       },
     },
   },

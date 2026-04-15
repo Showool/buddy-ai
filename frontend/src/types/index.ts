@@ -1,89 +1,39 @@
-// 类型定义
-
+/** 消息角色 */
 export type MessageRole = 'user' | 'assistant'
 
+/** 单条消息 */
 export interface Message {
+  id: string
   role: MessageRole
   content: string
-  timestamp?: string
-  file?: UploadedFile
+  timestamp: number
 }
 
-export interface DebugInfo {
-  type: string
-  message_type?: string
-  role?: string
-  content: string
-  tool_calls?: ToolCall[]
+/** 对话线程 */
+export interface Thread {
+  threadId: string
+  title: string
+  messages: Message[]
+  createdAt: number
+  updatedAt: number
+}
+
+/** 主题类型 */
+export type ThemeMode = 'light' | 'dark'
+
+/** SSE 后端返回的单行 JSON 对象 */
+export interface SSEJsonLine {
+  event?: string
+  content?: string
   node?: string
+  error?: string
 }
 
-export interface ToolCall {
-  name: string
-  args: Record<string, any>
-}
+/** 文件上传允许的扩展名 */
+export const ALLOWED_EXTENSIONS = ['.txt', '.docx', '.md'] as const
 
-export interface Session {
-  thread_id: string
-  user_id: string
-  title?: string
-  created_at: string
-  updated_at: string
-  message_count: number
-}
-
-export interface Memory {
-  id: string
-  user_id: string
-  content: string
-  created_at: string
-}
-
-export interface UploadedFile {
-  id: string
+/** 文件上传响应 */
+export interface UploadFileResponse {
   filename: string
-  size: number
-  file_size: number
-  file_type: string
-  status: string
-  vectorized: boolean
-  upload_time: string
-  task_id?: string
-  chunk_count?: number
+  content: string[]
 }
-
-// WebSocket 消息类型
-export enum MessageType {
-  USER_MESSAGE = 'user_message',
-  AGENT_STEP = 'agent_step',
-  AGENT_COMPLETE = 'agent_complete',
-  ERROR = 'error',
-}
-
-export interface AgentStepMessage {
-  type: MessageType.AGENT_STEP
-  node: string
-  message_type: string
-  content: string
-  tool_calls?: ToolCall[]
-}
-
-export interface AgentCompleteMessage {
-  type: MessageType.AGENT_COMPLETE
-  final_answer: string
-  thread_id: string
-}
-
-export interface ErrorMessage {
-  type: MessageType.ERROR
-  message: string
-  code?: string
-}
-
-export interface UserMessageRequest {
-  type: MessageType.USER_MESSAGE
-  content: string
-  thread_id?: string
-}
-
-export type WSMessage = AgentStepMessage | AgentCompleteMessage | ErrorMessage | UserMessageRequest

@@ -1,0 +1,31 @@
+[project]
+name = "buddy-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "celery>=5.6.3",
+    "fastapi[standard]>=0.135.3",
+    "grpcio-tools>=1.80.0",
+    "jieba>=0.42.1",
+    "langchain>=1.2.15",
+    "langchain-community>=0.4.1",
+    "langchain-huggingface>=1.2.1",
+    "langchain-openai>=1.1.12",
+    "langchain-tavily>=0.2.17",
+    "langgraph>=1.1.6",
+    "langgraph-checkpoint-redis>=0.4.0",
+    "mem0ai>=1.0.11",
+    "pandas>=3.0.2",
+    "pdfplumber>=0.11.9",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "pymilvus[model]==2.5.18",
+    "python-docx>=1.2.0",
+    "python-magic>=0.4.27",
+    "snowflake-id>=1.0.2",
+    "torch>=2.11.0",
+    "transformers>=5.5.3",
+    "wikipedia>=1.4.0",
+]
