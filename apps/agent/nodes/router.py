@@ -58,6 +58,12 @@ def router(state: GraphState) -> dict:
         "route_decision": route_result.route_decision,
         "route_reason": route_result.route_reason,
         "original_input": query,
+        "enhanced_input": None,
+        "query_transform_type": None,
+        "rag_docs": [],
+        "plan": None,
         "reflection_count": 0,  # 初始化评估计数
         "reflection": None,  # 清除之前的评估状态
+        "draft_answer": None,
+        "final_answer": None,
     }

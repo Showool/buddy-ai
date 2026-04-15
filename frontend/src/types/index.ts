@@ -29,13 +29,11 @@ export interface SSEJsonLine {
   error?: string
 }
 
-/** SSE workflow_node 事件数据 */
-export interface WorkflowNodeEvent {
-  content: string
-  node: string
-}
+/** 文件上传允许的扩展名 */
+export const ALLOWED_EXTENSIONS = ['.txt', '.docx', '.md'] as const
 
-/** SSE final_answer 事件数据 */
-export interface FinalAnswerEvent {
-  content: string
+/** 文件上传响应 */
+export interface UploadFileResponse {
+  filename: string
+  content: string[]
 }

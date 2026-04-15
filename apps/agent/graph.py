@@ -29,9 +29,8 @@ def get_graph():
         workflow.add_node("work_step", work_step)
         workflow.add_node("synthesis_step_results", synthesis_step_results)
         workflow.add_node("evaluate_node", evaluate_node)
-
-        
         workflow.add_node("tool_node", ToolNode(get_tools))
+        workflow.add_node("save_memories", save_memories)
 
         # 边定义: 记忆检索 → 路由 → ... → 记忆存储
         workflow.add_edge(START, "retrieve_memories")
@@ -46,21 +45,22 @@ def get_graph():
           "planner", assign_workers, ["work_step"]
         )
         workflow.add_edge("work_step", "synthesis_step_results")
-        workflow.add_edge("synthesis_step_results", END)
 
         workflow.add_edge("query_transform", "hybrid_search")
         workflow.add_edge("query_transform", "text_match")
         workflow.add_edge("hybrid_search", "generate_response")
         workflow.add_edge("text_match", "generate_response")
 
-        # generate_response 统一出边：工具调用 → 评估 → 结束
+        # generate_response 统一出边：工具调用 → 评估 → 保存记忆
         workflow.add_conditional_edges(
             "generate_response",
             generate_response_router,
-            {"tool_node": "tool_node", "evaluate_node": "evaluate_node", END: END}
+            {"tool_node": "tool_node", "evaluate_node": "evaluate_node", "save_memories": "save_memories"}
         )
         workflow.add_edge("tool_node", "generate_response")
         workflow.add_edge("evaluate_node", "generate_response")
+        workflow.add_edge("synthesis_step_results", "save_memories")
+        workflow.add_edge("save_memories", END)
 
         return workflow.compile(checkpointer=checkpointer)
     

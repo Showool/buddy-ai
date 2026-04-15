@@ -30,7 +30,7 @@ class GraphState(MessagesState):
     memory_context: str | None           # Mem0 记忆上下文
     route_decision: str                  # 路由决策 (answer_directly / knowledge_base_search / plan_and_execute)
     original_input: str                  # 用户原始输入
-    enhanced_input: list[str] | None     # 增强后的查询
+    enhanced_input: str | None     # 增强后的查询
     rag_docs: list[dict]                 # 检索到的文档
     plan: PlanState | None               # 任务执行计划
     reflection_count: int                # 反思次数（最多 3 次）
@@ -213,7 +213,6 @@ buddy-ai/
 │       │   ├── planner.py           # Plan-and-Execute（plan_step / work_step / synthesis）
 │       │   ├── evaluator.py         # Reflection 评估节点
 │       │   ├── memory.py            # 记忆检索与保存节点
-│       │   ├── direct_answer.py     # 直接回答节点
 │       │   └── message_summarizer.py # 消息摘要节点
 │       ├── llm/
 │       │   └── llm_factory.py       # LLM 工厂（OpenAI / DashScope / 智谱 AI）

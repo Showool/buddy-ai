@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-window-scroll" ref="chatWindowRef">
+  <div class="chat-window-scroll">
     <div class="chat-window-inner">
       <div
         v-for="msg in messages"
@@ -8,11 +8,17 @@
         :class="msg.role"
       >
         <div
-          class="message-bubble"
-          :class="[msg.role, { error: msg.content.startsWith('❌') }]"
+          v-if="msg.role === 'user'"
+          class="message-bubble user"
         >
           {{ msg.content }}
         </div>
+        <div
+          v-else
+          class="message-bubble assistant"
+          :class="{ error: msg.content.startsWith('❌') }"
+          v-html="renderMarkdown(msg.content)"
+        />
       </div>
 
       <div v-if="showTyping" class="typing-row">
@@ -31,13 +37,13 @@
 <script setup lang="ts">
 import { computed, watch, nextTick, ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import MarkdownIt from 'markdown-it'
 
-const props = defineProps<{
-  threadId: string
-}>()
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+
+const props = defineProps<{ threadId: string }>()
 
 const chatStore = useChatStore()
-const chatWindowRef = ref<HTMLDivElement>()
 const scrollAnchorRef = ref<HTMLDivElement>()
 
 const messages = computed(() => {
@@ -53,25 +59,24 @@ const showTyping = computed(() => {
   return last.role !== 'assistant' || !last.content
 })
 
+function renderMarkdown(content: string): string {
+  return md.render(content)
+}
+
 function scrollToBottom() {
   nextTick(() => {
     scrollAnchorRef.value?.scrollIntoView({ behavior: 'smooth' })
   })
 }
 
-watch(
-  () => messages.value.length,
-  () => scrollToBottom()
-)
-
+watch(() => messages.value.length, () => scrollToBottom())
 watch(
   () => {
     const msgs = messages.value
     if (msgs.length === 0) return ''
-    const last = msgs[msgs.length - 1]
-    return last.content
+    return msgs[msgs.length - 1].content
   },
-  () => scrollToBottom()
+  () => scrollToBottom(),
 )
 </script>
 
@@ -95,29 +100,14 @@ watch(
   display: flex;
   width: 100%;
 }
-
-.message-row.user {
-  justify-content: flex-end;
-}
-
-.message-row.assistant {
-  justify-content: flex-start;
-}
-
-.typing-row {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
+.message-row.user { justify-content: flex-end; }
+.message-row.assistant { justify-content: flex-start; }
 
 .message-bubble {
   max-width: 90%;
-  padding: 10px 16px;
-  border-radius: 12px;
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
-  white-space: pre-wrap;
 }
 
 .message-bubble.user {
@@ -126,13 +116,12 @@ watch(
   border-radius: 20px;
   padding: 14px 20px;
   font-size: 16px;
+  white-space: pre-wrap;
 }
 
 .message-bubble.assistant {
   background-color: transparent;
   color: var(--el-text-color-primary);
-  border: none;
-  border-radius: 0;
   padding: 10px 0;
 }
 
@@ -140,6 +129,55 @@ watch(
   background-color: var(--el-color-danger-light-9);
   color: var(--el-color-danger);
   border: 1px solid var(--el-color-danger-light-5);
+  border-radius: 12px;
+  padding: 10px 16px;
+}
+
+/* Markdown 样式 */
+.message-bubble.assistant :deep(p) { margin: 0.5em 0; }
+.message-bubble.assistant :deep(p:first-child) { margin-top: 0; }
+.message-bubble.assistant :deep(p:last-child) { margin-bottom: 0; }
+
+.message-bubble.assistant :deep(pre) {
+  background-color: var(--el-fill-color);
+  border-radius: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.message-bubble.assistant :deep(code) {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+}
+
+.message-bubble.assistant :deep(:not(pre) > code) {
+  background-color: var(--el-fill-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.message-bubble.assistant :deep(ul),
+.message-bubble.assistant :deep(ol) {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.message-bubble.assistant :deep(a) { color: var(--el-color-primary); text-decoration: none; }
+.message-bubble.assistant :deep(a:hover) { text-decoration: underline; }
+
+.message-bubble.assistant :deep(blockquote) {
+  border-left: 3px solid var(--el-border-color);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--el-text-color-secondary);
+}
+
+/* 打字指示器 */
+.typing-row {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .typing-indicator {
@@ -158,27 +196,12 @@ watch(
   background-color: var(--el-text-color-secondary);
   animation: typing 1.4s infinite ease-in-out both;
 }
-
-.dot:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
+.dot:nth-child(1) { animation-delay: 0s; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
 
 @keyframes typing {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.4;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
 }
 </style>

@@ -32,7 +32,6 @@ body {
   overflow: hidden;
 }
 
-/* Sidebar: fixed width, main content: fill remaining */
 .app-container > aside {
   flex-shrink: 0;
 }
@@ -43,13 +42,7 @@ body {
 }
 
 /* ===== Smooth Theme Transitions ===== */
-body,
-.el-menu,
-.el-aside,
-.el-header,
-.el-footer,
-.el-card,
-.el-dialog {
+body {
   transition: background-color 0.3s ease, color 0.3s ease,
     border-color 0.3s ease;
 }
@@ -60,7 +53,7 @@ body,
   scrollbar-color: var(--el-border-color) transparent;
 }
 
-/* ===== Scrollbar Styling (Webkit: Chrome, Safari, Edge) ===== */
+/* ===== Scrollbar Styling (Webkit) ===== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -71,19 +64,14 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--el-border-color);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--el-border-color-darker);
-}
-
-/* Hide scrollbar when not hovering (show on hover) */
-::-webkit-scrollbar-thumb {
   background-color: var(--el-border-color-light);
+  border-radius: 3px;
 }
 
 *:hover::-webkit-scrollbar-thumb {
   background-color: var(--el-border-color);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--el-border-color-darker);
 }

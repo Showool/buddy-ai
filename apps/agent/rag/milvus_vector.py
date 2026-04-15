@@ -1,8 +1,7 @@
 import datetime
 from typing import List
-
+from langchain_core.documents import Document
 from pymilvus import AnnSearchRequest, DataType, Function, FunctionType, MilvusClient, RRFRanker, model
-from apps.agent.rag.models import DocumentMetadata
 from apps.config import settings
 import logging
 
@@ -55,6 +54,9 @@ class MilvusVector:
 
         # 创建字段
         schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True, description="primary id")
+        schema.add_field(field_name="user_id", datatype=DataType.VARCHAR, max_length=64, description="knowledge id")
+        schema.add_field(field_name="knowledge_id", datatype=DataType.INT64, description="knowledge id")
+        schema.add_field(field_name="document_id", datatype=DataType.INT64, description="document id")
         schema.add_field(field_name="document_text", datatype=DataType.VARCHAR, max_length=1000, enable_analyzer=True, enable_match=True, analyzer_params = analyzer_params, description="raw text of document")
         schema.add_field(field_name="metadata", datatype=DataType.JSON, nullable=True, description="metadata of document")
         schema.add_field(field_name="text_dense", datatype=DataType.FLOAT_VECTOR, dim=1024, description="text dense embedding")
@@ -98,18 +100,25 @@ class MilvusVector:
 
         logger.info("Create collection: %s", res)
 
-
-    def save(self, docs: List[str], metadata: DocumentMetadata) -> None:
+    def save_documents(self, docs: List[Document], user_id: str, knowledge_id: int, document_id: int) -> None:
         if not docs:
             return
 
         # 批量生成 embeddings
-        docs_embeddings = self.openai_ef.encode_documents(docs)
+        docs_embeddings = self.openai_ef.encode_documents([doc.page_content for doc in docs])
 
         # 动态生成 data 列表
         data = [
-            {"document_text": text, "text_dense": embedding, "metadata": metadata, "create_time": int(datetime.datetime.now().timestamp() * 1000)}
-            for text, embedding in zip(docs, docs_embeddings)
+            {
+                "user_id": user_id,
+                "knowledge_id": knowledge_id,
+                "document_id": document_id,
+                "document_text": doc.page_content, 
+                "text_dense": embedding, 
+                "metadata": doc.metadata or {}, 
+                "create_time": int(datetime.datetime.now().timestamp() * 1000)
+            }
+            for doc, embedding in zip(docs, docs_embeddings)
         ]
 
         res = self.client.insert(
@@ -119,7 +128,23 @@ class MilvusVector:
         logger.info("res: %s, 插入 %d 条数据成功", res, len(docs))
 
 
-    def hybrid_search(self, query: str, user_id: str, top_k: int = 3) -> List[dict]:
+    def vector_search(self, query: str, user_id: str, knowledge_id: int = 1, top_k: int = 3) -> List[dict]:
+        """ 向量搜索 """
+
+        # 创建查询条件
+        query_embeddings = self.openai_ef.encode_queries([query])
+        # 创建查询参数
+        result = self.client.search(
+                collection_name=self.collection_name,
+                anns_field="text_dense",
+                data=query_embeddings,
+                filter = f'user_id == "{user_id}" and knowledge_id == {knowledge_id}',
+                limit=top_k,
+                output_fields=['id', 'document_text'],
+            )
+        return [hit["entity"] for hits in result for hit in hits]
+
+    def hybrid_search(self, query: str, user_id: str, knowledge_id: int = 1, top_k: int = 3) -> List[dict]:
         """ 混合搜索 """
 
         # 创建查询条件
@@ -129,7 +154,7 @@ class MilvusVector:
             "data": query_embeddings,
             "anns_field": "text_dense",
             "param": {"nprobe": 10}, # 搜索候选集群的集群数。数值越大，搜索的簇数越多，搜索范围越大，召回率越高，但代价是查询延迟增加。
-            "expr": f"metadata['user_id'] == '{user_id}'",
+            "expr": f'user_id == "{user_id}" and knowledge_id == {knowledge_id}',
             "limit": top_k
         }
         semantic_search_request = AnnSearchRequest(**semantic_search_param)
@@ -138,7 +163,7 @@ class MilvusVector:
             "data": [query],
             "anns_field": "text_sparse",
             "param": {},  # BM25 搜索不需要额外参数
-            "expr": f"metadata['user_id'] == '{user_id}'",
+            "expr": f'user_id == "{user_id}" and knowledge_id == {knowledge_id}',
             "limit": top_k
         }
         full_text_search_request = AnnSearchRequest(**full_text_search_param)
@@ -158,9 +183,9 @@ class MilvusVector:
         return [hit["entity"] for hits in result for hit in hits]
     
 
-    def text_match(self, query: str, keyword: str, user_id: str, limit: int = 3) -> List[dict]:
+    def text_match(self, query: str, keyword: str, user_id: str, knowledge_id: int = 1, limit: int = 3) -> List[dict]:
         """ 文本匹配与向量相似性搜索结合使用，以缩小搜索范围并提高搜索性能。 """
-        filter = f"TEXT_MATCH(document_text, '{keyword}') and metadata['user_id'] == '{user_id}'"
+        filter = f'user_id == "{user_id}" and knowledge_id == {knowledge_id} and TEXT_MATCH(document_text, "{keyword}")'
         query_vector = self.openai_ef.encode_queries([query])
         result = self.client.search(
             collection_name=self.collection_name,
@@ -177,20 +202,23 @@ milvusVector = MilvusVector(db_name=settings.MILVUS_DB_NAME, token=settings.MILV
 
 if __name__ == "__main__":
     # client = MilvusClient(uri="http://172.16.100.160:19530", token="root:Milvus", db_name="buddy_ai")
-    # client.drop_collection(collection_name="document_embedding")
+    # res = client.drop_collection(collection_name="document_embedding")
+    # print("Drop collection: ", res)
     # client.drop_collection(collection_name="mem0")
     # client.drop_collection(collection_name="mem0migrations")
     # client.drop_database(
     #     db_name="buddy_ai"
     # )
-    milvusVector.save(["人工智能是计算机科学的一个分支，致力于开发能够执行通常需要人类智能的任务的系统。这包括视觉感知、语音识别、决策制定和语言翻译等。",
+    data = ["人工智能是计算机科学的一个分支，致力于开发能够执行通常需要人类智能的任务的系统。这包括视觉感知、语音识别、决策制定和语言翻译等。",
       "机器学习是从大量数据里找规律，它通过训练模型来从数据中提取特征，并使用这些特征来预测未知数据。",
       "列表推导式：用一条简洁语句，从可迭代对象中，生成新列表的语法结构。",
       "函数式编程：将函数作为参数传递给其他函数，或者将函数作为返回值。",
       "闭包：当一个内部函数中访问了外部函数的局部变量，并且这个内部函数在外部被返回或调用时，就形成了闭包。",
       "AI是人工智能。",
-    ], {"source": "knowledge", "file_type": "txt", "user_id": "1"})
-    res = milvusVector.hybrid_search("什么是人工智能", "1")
+    ]
+    document_list = [Document(page_content=text) for text in data]
+    milvusVector.save_documents(document_list, "1", 1, 1)
+    res = milvusVector.hybrid_search("什么是人工智能", "1", 1)
     print("hybrid_search: ", res)
-    res = milvusVector.text_match("什么是人工智能", "人工智能", "1")
+    res = milvusVector.text_match("什么是人工智能", "人工智能", "1", 1)
     print("text_match: ", res)

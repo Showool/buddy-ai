@@ -1,87 +1,146 @@
 import { defineStore } from 'pinia'
-import { reactive } from 'vue'
+import { ref, computed } from 'vue'
 import type { Message, Thread } from '@/types'
+import { nanoid } from 'nanoid'
 
-export const useChatStore = defineStore('chat', {
-  state: () => ({
-    threads: reactive(new Map<string, Thread>()),
-    currentThreadId: null as string | null,
-    isStreaming: false,
-  }),
+const STORAGE_KEY = 'buddy-ai-threads'
 
-  actions: {
-    createThread(threadId: string, firstMessage: string) {
-      const now = Date.now()
-      const thread: Thread = {
-        threadId,
-        title: firstMessage.slice(0, 20),
-        messages: [],
-        createdAt: now,
-        updatedAt: now,
-      }
-      this.threads.set(threadId, thread)
-      this.currentThreadId = threadId
-    },
+function loadThreads(): Map<string, Thread> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return new Map()
+    const arr: Thread[] = JSON.parse(raw)
+    return new Map(arr.map((t) => [t.threadId, t]))
+  } catch {
+    return new Map()
+  }
+}
 
-    switchThread(threadId: string) {
-      if (this.threads.has(threadId)) {
-        this.currentThreadId = threadId
-      }
-    },
+function saveThreads(threads: Map<string, Thread>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(threads.values())))
+  } catch { /* storage full or unavailable */ }
+}
 
-    getThreadList(): Thread[] {
-      return Array.from(this.threads.values()).sort(
-        (a, b) => b.updatedAt - a.updatedAt,
-      )
-    },
+export const useChatStore = defineStore('chat', () => {
+  const threads = ref(loadThreads())
+  const currentThreadId = ref<string | null>(null)
+  const isStreaming = ref(false)
+  let activeController: AbortController | null = null
 
-    addMessage(threadId: string, message: Message) {
-      const thread = this.threads.get(threadId)
-      if (!thread) return
-      thread.messages.push(message)
-      thread.updatedAt = Date.now()
-    },
+  const threadList = computed(() =>
+    Array.from(threads.value.values()).sort((a, b) => b.updatedAt - a.updatedAt),
+  )
 
-    appendToLastAIMessage(threadId: string, content: string) {
-      const thread = this.threads.get(threadId)
-      if (!thread) return
+  function persist() {
+    saveThreads(threads.value)
+  }
 
-      const lastMsg = thread.messages[thread.messages.length - 1]
-      if (lastMsg && lastMsg.role === 'assistant') {
-        lastMsg.content += content
-      } else {
-        const newMsg: Message = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-          role: 'assistant',
-          content,
-          timestamp: Date.now(),
-        }
-        thread.messages.push(newMsg)
-      }
-      thread.updatedAt = Date.now()
-    },
+  function createThread(threadId: string, firstMessage: string) {
+    threads.value.set(threadId, {
+      threadId,
+      title: firstMessage.slice(0, 20),
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    currentThreadId.value = threadId
+    persist()
+  }
 
-    setFinalAnswer(threadId: string, content: string) {
-      const thread = this.threads.get(threadId)
-      if (!thread) return
+  function switchThread(threadId: string) {
+    if (threads.value.has(threadId)) {
+      currentThreadId.value = threadId
+    }
+  }
 
-      const lastMsg = thread.messages[thread.messages.length - 1]
-      if (lastMsg && lastMsg.role === 'assistant') {
-        lastMsg.content = content
-      } else {
-        const newMsg: Message = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-          role: 'assistant',
-          content,
-          timestamp: Date.now(),
-        }
-        thread.messages.push(newMsg)
-      }
-      thread.updatedAt = Date.now()
-    },
+  function deleteThread(threadId: string) {
+    if (currentThreadId.value === threadId && isStreaming.value) {
+      cancelActiveStream()
+    }
+    threads.value.delete(threadId)
+    if (currentThreadId.value === threadId) {
+      currentThreadId.value = null
+    }
+    persist()
+  }
 
-    setStreaming(value: boolean) {
-      this.isStreaming = value
-    },
-  },
+  function addMessage(threadId: string, message: Message) {
+    const thread = threads.value.get(threadId)
+    if (!thread) return
+    thread.messages.push(message)
+    thread.updatedAt = Date.now()
+    persist()
+  }
+
+  function appendToLastAIMessage(threadId: string, content: string) {
+    const thread = threads.value.get(threadId)
+    if (!thread) return
+    const last = thread.messages[thread.messages.length - 1]
+    if (last && last.role === 'assistant') {
+      last.content += content
+    } else {
+      thread.messages.push({
+        id: nanoid(),
+        role: 'assistant',
+        content,
+        timestamp: Date.now(),
+      })
+    }
+    thread.updatedAt = Date.now()
+    // 流式追加时不频繁写 localStorage，等 setStreaming(false) 时统一持久化
+  }
+
+  function setFinalAnswer(threadId: string, content: string) {
+    const thread = threads.value.get(threadId)
+    if (!thread) return
+    const last = thread.messages[thread.messages.length - 1]
+    if (last && last.role === 'assistant') {
+      last.content = content
+    } else {
+      thread.messages.push({
+        id: nanoid(),
+        role: 'assistant',
+        content,
+        timestamp: Date.now(),
+      })
+    }
+    thread.updatedAt = Date.now()
+    persist()
+  }
+
+  function setStreaming(value: boolean) {
+    isStreaming.value = value
+    if (!value) persist() // 流结束时统一持久化
+  }
+
+  function setActiveController(ctrl: AbortController | null) {
+    if (activeController) activeController.abort()
+    activeController = ctrl
+  }
+
+  function cancelActiveStream() {
+    if (activeController) {
+      activeController.abort()
+      activeController = null
+    }
+    isStreaming.value = false
+    persist()
+  }
+
+  return {
+    threads,
+    currentThreadId,
+    isStreaming,
+    threadList,
+    createThread,
+    switchThread,
+    deleteThread,
+    addMessage,
+    appendToLastAIMessage,
+    setFinalAnswer,
+    setStreaming,
+    setActiveController,
+    cancelActiveStream,
+  }
 })

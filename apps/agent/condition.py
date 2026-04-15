@@ -14,7 +14,7 @@ def route_condition(state: GraphState) -> str:
     return "direct_answer"
 
 def generate_response_router(state: GraphState) -> str:
-  """generate_response 统一出边：工具调用 → 评估 → 结束"""
+  """generate_response 统一出边：工具调用 → 评估 → 保存记忆"""
   messages = state.get("messages", [])
   last_message = messages[-1] if messages else None
 
@@ -29,8 +29,8 @@ def generate_response_router(state: GraphState) -> str:
     if state.get("draft_answer"):
       return "evaluate_node"
 
-  # 3. 其他情况 → 结束
-  return END
+  # 3. 保存记忆
+  return "save_memories"
   
 
 def assign_workers(state: GraphState) -> str:

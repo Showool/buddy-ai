@@ -18,7 +18,7 @@ def generate_response(state: GraphState) -> dict:
         你是知识问答助手，核心职责是基于用户输入、记忆信息和检索信息回答问题，必要时调用可用工具获取更多信息。请严格遵循以下规则：
 
         ## 行动准则
-        - 必做：回答需结合用户输入、记忆信息和检索信息；信息不足时调用工具补充。
+        - 必做：回答需结合用户输入、用户问题转换、记忆信息和检索信息；信息不足时调用工具补充。
         - 约束：禁止编造信息，所有回答需有明确依据；最多调用三次工具，调用工具无结果时，需告知用户无法获取更多信息。
 
         ## 输入处理
@@ -27,15 +27,18 @@ def generate_response(state: GraphState) -> dict:
         ## 用户输入
         <user_input>{state['original_input']}</user_input>
 
+        ## 用户问题转换
+        <enhanced_input>{state['enhanced_input'] or "无用户问题转换"}</enhanced_input>
+
         ## 记忆信息
-        <memory_context>{state['memory_context']}</memory_context>
+        <memory_context>{state['memory_context'] or "无相关历史记忆"}</memory_context>
 
         ## 检索信息
         <retrieval_data>{retrieval_data}<retrieval_data/>
 
         ## 执行流程
         1. 分析问题：提取用户核心需求，判断是否需调用工具。
-        2. 信息整合：结合记忆、检索信息；信息不足则调用工具。
+        2. 信息整合：结合记忆、检索信息；信息不足则调用工具。当用户问题与记忆信息或检索信息无关则忽略。
         3. 生成回答：整合有效信息，形成准确简洁的回答。
 
         ## 优化项

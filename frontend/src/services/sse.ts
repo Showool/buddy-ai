@@ -1,7 +1,6 @@
 import type { SSEJsonLine } from '@/types'
 
 export interface SSEClientOptions {
-  baseUrl?: string
   onWorkflowNode: (data: { content: string; node: string }) => void
   onFinalAnswer: (data: { content: string }) => void
   onError: (error: string) => void
@@ -63,11 +62,10 @@ export function createSSEConnection(
   options: SSEClientOptions,
 ): AbortController {
   const controller = new AbortController()
-  const baseUrl = options.baseUrl ?? ''
 
   const run = async () => {
     try {
-      const response = await fetch(`${baseUrl}/agent/chat`, {
+      const response = await fetch('/agent/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -171,11 +169,4 @@ export function createSSEConnection(
   run()
 
   return controller
-}
-
-/**
- * Close an SSE connection by aborting the fetch request.
- */
-export function closeSSEConnection(controller: AbortController): void {
-  controller.abort()
 }

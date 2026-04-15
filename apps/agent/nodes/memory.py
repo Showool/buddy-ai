@@ -30,7 +30,7 @@ def retrieve_memories(state: GraphState, config: RunnableConfig) -> dict:
 
     try:
         mem = get_memory()
-        results = mem.search(query, user_id=user_id)
+        results = mem.search(query, user_id=user_id, limit=3, threshold=0.7)
 
         # mem0 返回格式: list[dict] 或 {"results": [...]}
         memories = results if isinstance(results, list) else results.get("results", [])
@@ -61,21 +61,29 @@ def save_memories(state: GraphState, config: RunnableConfig) -> dict:
     original_input = state.get("original_input", "")
     final_answer = state.get("final_answer", "")
 
-    if not user_id or not original_input:
+    if not user_id or not original_input or not final_answer:
         return {}
 
     try:
+        mem = get_memory()
+
+        # 语义去重：检查是否已存在高度相似的记忆
+        existing = mem.search(original_input, user_id=user_id, limit=1, threshold=0.95)
+        duplicates = existing if isinstance(existing, list) else existing.get("results", [])
+        if duplicates:
+            logger.info("已存在相似记忆，跳过存储: user_id=%s", user_id)
+            return {}
+
         interaction = [
             {
                 "role": "user",
                 "content": original_input
             },
             {
-                "role": "assistant", 
+                "role": "assistant",
                 "content": final_answer
             }
         ]
-        mem = get_memory()
         mem.add(interaction, user_id=user_id)
         logger.info("记忆已存储: user_id=%s", user_id)
 

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     )
 
     LLM_PROVIDER: str = "openai"
+    LLM_MODEL: str = "gpt-5.2"
 
     # ========== API Keys ==========
     DASHSCOPE_API_KEY: str = ""

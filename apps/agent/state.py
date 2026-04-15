@@ -7,6 +7,12 @@ class RouteSchema(BaseModel):
     route_decision: Literal['answer_directly', 'knowledge_base_search', 'paln_and_execute'] = Field(..., description="Classification of user input information")
     route_reason: str = Field(..., description="Reason for classification")
 
+""" Query transform Schema """
+class QueryTransformSchema(BaseModel):
+    type: Literal['Step_Back_Prompting', 'HyDE'] = Field(..., description="Transform strategy")
+    result: str = Field(..., description="Transform result")
+
+
 class PlanStepSchema(BaseModel):
     step_number: int = Field(..., description="Step number")
     description: str = Field(..., description="Step description")
@@ -46,8 +52,10 @@ class GraphState(MessagesState):
     route_reason: NotRequired[str | None]
     """ 用户原始输入 """
     original_input: Annotated[str, "Original input"]
-    """ 增强后的输入(Query Transformations) """
-    enhanced_input: NotRequired[list[str] | None]
+    """ 增强后的输入(Query Transform) """
+    enhanced_input: NotRequired[str | None]
+    """ Query Transform 类型 """
+    query_transform_type: NotRequired[Literal['Step_Back_Prompting', 'HyDE'] | None]
     rag_docs: Annotated[list[dict], merge_rag_docs]
     plan: NotRequired[PlanState | None]
     reflection_count: Annotated[int, "Number of reflections"] = 0
