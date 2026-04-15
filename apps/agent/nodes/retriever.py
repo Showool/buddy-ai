@@ -1,9 +1,18 @@
+import jieba
 from langchain.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from apps.agent.llm.llm_factory import get_llm
 from apps.agent.state import GraphState, QueryTransformSchema
 from apps.agent.rag import milvusVector
+
+STOP_WORDS = {"的", "是", "在", "了", "什么", "如何", "怎么", "吗", "呢", "有", "和", "与", "对", "把", "被", "从", "到", "为", "这", "那", "就", "也", "都", "而", "及", "着", "或", "一个", "没有", "不是", "可以", "我", "你", "他", "她", "它", "们", "请", "能", "会", "要", "让", "给", "用", "很", "最", "更", "还", "但", "却", "只", "已", "已经"}
+
+
+def extract_keywords(text: str) -> str:
+    """基于 jieba 分词 + 停用词过滤提取关键词"""
+    words = [w for w in jieba.cut(text) if len(w) > 1 and w not in STOP_WORDS]
+    return " ".join(words)
 
 # 退步提示（Step-Back Prompting）
 # 当面对一个细节繁多或过于具体的问题时，模型直接作答（即便是使用思维链）也容易出错。退步提示通过引导模型“退后一步”来解决这个问题。
@@ -55,8 +64,9 @@ def text_match(state: GraphState, config: RunnableConfig) -> dict:
   """ 文本匹配 """
   original_input = state["original_input"]
   user_id = config["configurable"].get("user_id")
-  # 获取关键词
-  keyword = ""
+  keyword = extract_keywords(original_input)
+  if not keyword:
+    return {"rag_docs": []}
   data = milvusVector.text_match(original_input, keyword, user_id)
   return {
     "rag_docs": data
