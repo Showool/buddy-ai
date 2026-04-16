@@ -94,6 +94,9 @@ function handleSend(message: string) {
 // 处理自动发送（从欢迎页跳转）
 onMounted(() => {
   if (route.query.autoSend === 'true') {
+    // 先清除 query 参数，避免 fullPath 变化导致组件重建
+    router.replace({ name: 'Chat', params: { threadId } })
+
     const thread = chatStore.threads.get(threadId)
     if (thread && thread.messages.length > 0) {
       const lastUserMsg = [...thread.messages]
@@ -103,7 +106,6 @@ onMounted(() => {
         sendToSSE(lastUserMsg.content)
       }
     }
-    router.replace({ name: 'Chat', params: { threadId } })
   }
 })
 

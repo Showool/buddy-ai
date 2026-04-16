@@ -56,7 +56,7 @@ class MilvusVector:
         schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True, description="primary id")
         schema.add_field(field_name="user_id", datatype=DataType.VARCHAR, max_length=64, description="knowledge id")
         schema.add_field(field_name="knowledge_id", datatype=DataType.INT64, description="knowledge id")
-        schema.add_field(field_name="document_id", datatype=DataType.INT64, description="document id")
+        schema.add_field(field_name="file_id", datatype=DataType.INT64, description="document id")
         schema.add_field(field_name="document_text", datatype=DataType.VARCHAR, max_length=1000, enable_analyzer=True, enable_match=True, analyzer_params = analyzer_params, description="raw text of document")
         schema.add_field(field_name="metadata", datatype=DataType.JSON, nullable=True, description="metadata of document")
         schema.add_field(field_name="text_dense", datatype=DataType.FLOAT_VECTOR, dim=1024, description="text dense embedding")
@@ -100,7 +100,7 @@ class MilvusVector:
 
         logger.info("Create collection: %s", res)
 
-    def save_documents(self, docs: List[Document], user_id: str, knowledge_id: int, document_id: int) -> None:
+    def save_documents(self, docs: List[Document], user_id: str, knowledge_id: int, file_id: int) -> None:
         if not docs:
             return
 
@@ -112,7 +112,7 @@ class MilvusVector:
             {
                 "user_id": user_id,
                 "knowledge_id": knowledge_id,
-                "document_id": document_id,
+                "file_id": file_id,
                 "document_text": doc.page_content, 
                 "text_dense": embedding, 
                 "metadata": doc.metadata or {}, 
@@ -197,6 +197,11 @@ class MilvusVector:
             output_fields=['id', "document_text"]
         )
         return [hit["entity"] for hits in result for hit in hits]
+    
+    def delete_documents(self, file_id: int, user_id: str, knowledge_id: int = 1) -> None:
+        filter = f'file_id == {file_id} and user_id == "{user_id}" and knowledge_id == {knowledge_id}'
+        res = self.client.delete(collection_name=self.collection_name,filter=filter)
+        logger.info("Delete data: %s", res)
 
 milvusVector = MilvusVector(db_name=settings.MILVUS_DB_NAME, token=settings.MILVUS_TOKEN, url=settings.MILVUS_URL)
 

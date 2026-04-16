@@ -1,18 +1,19 @@
 from typing import Annotated, Literal, NotRequired, TypedDict
+import operator
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
 """" Route Schema """
 class RouteSchema(BaseModel):
-    route_decision: Literal['answer_directly', 'knowledge_base_search', 'paln_and_execute'] = Field(..., description="Classification of user input information")
+    route_decision: Literal['answer_directly', 'knowledge_base_search', 'plan_and_execute'] = Field(..., description="Classification of user input information")
     route_reason: str = Field(..., description="Reason for classification")
 
 """ Query transform Schema """
 class QueryTransformSchema(BaseModel):
-    type: Literal['Step_Back_Prompting', 'HyDE'] = Field(..., description="Transform strategy")
+    transform_flag: bool = Field(..., description="Transform flag")
     result: str = Field(..., description="Transform result")
 
-
+""" Plan Schema """
 class PlanStepSchema(BaseModel):
     step_number: int = Field(..., description="Step number")
     description: str = Field(..., description="Step description")
@@ -20,16 +21,6 @@ class PlanStepSchema(BaseModel):
 class PlanSchema(BaseModel):
     steps: list[PlanStepSchema] = Field(..., description="Plan steps")
 
-""" Paln-And-Execute Agent State """
-class PlanStep(BaseModel):
-    step_number: int = Field(..., description="Step number")
-    description: str = Field(..., description="Step description")
-    status: Literal["pending", "faild", "completed"] = Field(default="pending", description="Step status")           # pending | faild | completed
-    result: str = Field(default="", description="Step result")
-
-class PlanState(BaseModel):
-    steps: list[PlanStep]
-    current_step_number: int = Field(default=1, description="Current step number")
 
 """ Reflection Agent State """
 class ReflectionState(BaseModel):
@@ -54,10 +45,9 @@ class GraphState(MessagesState):
     original_input: Annotated[str, "Original input"]
     """ 增强后的输入(Query Transform) """
     enhanced_input: NotRequired[str | None]
-    """ Query Transform 类型 """
-    query_transform_type: NotRequired[Literal['Step_Back_Prompting', 'HyDE'] | None]
     rag_docs: Annotated[list[dict], merge_rag_docs]
-    plan: NotRequired[PlanState | None]
+    plan: NotRequired[PlanSchema | None]
+    step_results: Annotated[list[str] | None, operator.add]
     reflection_count: Annotated[int, "Number of reflections"] = 0
     reflection: NotRequired[ReflectionState | None]
     draft_answer: NotRequired[str | None]

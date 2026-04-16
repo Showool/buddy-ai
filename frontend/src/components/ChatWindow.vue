@@ -38,8 +38,28 @@
 import { computed, watch, nextTick, ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+
+// 过滤危险协议链接 (javascript:, vbscript:, data:) 并为外部链接添加安全属性
+const defaultLinkRender = md.renderer.rules.link_open ||
+  function (tokens: any, idx: any, options: any, _env: any, self: any) {
+    return self.renderToken(tokens, idx, options)
+  }
+
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  const hrefIndex = tokens[idx].attrIndex('href')
+  if (hrefIndex >= 0) {
+    const href = tokens[idx].attrs![hrefIndex][1]
+    if (/^(javascript|vbscript|data):/i.test(href)) {
+      tokens[idx].attrs![hrefIndex][1] = '#'
+    }
+  }
+  tokens[idx].attrSet('target', '_blank')
+  tokens[idx].attrSet('rel', 'noopener noreferrer')
+  return defaultLinkRender(tokens, idx, options, env, self)
+}
 
 const props = defineProps<{ threadId: string }>()
 
@@ -60,7 +80,16 @@ const showTyping = computed(() => {
 })
 
 function renderMarkdown(content: string): string {
-  return md.render(content)
+  const raw = md.render(content)
+  return DOMPurify.sanitize(raw, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a',
+      'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'del', 'span',
+    ],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+    ALLOW_DATA_ATTR: false,
+  })
 }
 
 function scrollToBottom() {

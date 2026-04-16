@@ -29,6 +29,21 @@ export interface SSEJsonLine {
   error?: string
 }
 
+/** 知识库文件 */
+export interface KnowledgeFile {
+  id: number
+  knowledge_id: number
+  file_name: string
+  file_type: string
+  file_size: number
+  file_path: string | null
+  file_md5: string | null
+  creator_id: string
+  create_time: string
+  update_id: string
+  update_time: string
+}
+
 /** 文件上传允许的扩展名 */
 export const ALLOWED_EXTENSIONS = ['.txt', '.docx', '.md'] as const
 

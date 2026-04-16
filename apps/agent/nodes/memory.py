@@ -8,7 +8,7 @@ Mem0 记忆中间件 - 在 LangGraph 节点执行前后自动管理记忆
 
 import logging
 from langchain_core.runnables import RunnableConfig
-from apps.agent.memory import get_memory
+from apps.agent.memory import memoryClient
 from apps.agent.state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,7 @@ def retrieve_memories(state: GraphState, config: RunnableConfig) -> dict:
         return {"memory_context": None}
 
     try:
-        mem = get_memory()
-        results = mem.search(query, user_id=user_id, limit=3, threshold=0.7)
+        results = memoryClient.search(query, user_id=user_id, limit=3, threshold=0.7)
 
         # mem0 返回格式: list[dict] 或 {"results": [...]}
         memories = results if isinstance(results, list) else results.get("results", [])
@@ -65,10 +64,8 @@ def save_memories(state: GraphState, config: RunnableConfig) -> dict:
         return {}
 
     try:
-        mem = get_memory()
-
         # 语义去重：检查是否已存在高度相似的记忆
-        existing = mem.search(original_input, user_id=user_id, limit=1, threshold=0.95)
+        existing = memoryClient.search(original_input, user_id=user_id, limit=1, threshold=0.95)
         duplicates = existing if isinstance(existing, list) else existing.get("results", [])
         if duplicates:
             logger.info("已存在相似记忆，跳过存储: user_id=%s", user_id)
@@ -84,7 +81,7 @@ def save_memories(state: GraphState, config: RunnableConfig) -> dict:
                 "content": final_answer
             }
         ]
-        mem.add(interaction, user_id=user_id)
+        mem0_result = memoryClient.add(interaction, user_id=user_id)
         logger.info("记忆已存储: user_id=%s", user_id)
 
     except Exception as e:

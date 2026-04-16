@@ -58,6 +58,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { uploadFile, isFileAllowed } from '@/services/api'
+import { useUserStore } from '@/stores/user'
 
 interface Props {
   placeholder?: string
@@ -140,6 +141,7 @@ async function handleFileChange(e: Event) {
   try {
     await uploadFile(file, props.userId, 1)
     ElMessage.success(`文件 ${file.name} 上传成功`)
+    useUserStore().kbNeedRefresh = true
   } catch (err) {
     const msg = err instanceof Error ? err.message : '上传失败'
     ElMessage.error(msg)

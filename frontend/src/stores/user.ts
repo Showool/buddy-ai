@@ -8,6 +8,7 @@ export const useUserStore = defineStore('user', {
   state: () => ({
     userId: '' as string,
     theme: 'light' as ThemeMode,
+    kbNeedRefresh: false,
   }),
 
   actions: {

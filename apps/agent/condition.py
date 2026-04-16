@@ -7,11 +7,11 @@ def route_condition(state: GraphState) -> str:
   """路由条件"""
   route_decision = state["route_decision"]
   if route_decision == "knowledge_base_search":
-    return "query_transform"
+    return "query_transform_HyDE"
   elif route_decision == "plan_and_execute":
     return "planner"
   else:
-    return "direct_answer"
+    return "query_transform"
 
 def generate_response_router(state: GraphState) -> str:
   """generate_response 统一出边：工具调用 → 评估 → 保存记忆"""
@@ -37,5 +37,5 @@ def assign_workers(state: GraphState) -> str:
   """Assign a worker to each step in the plan"""
 
   # Kick off section writing in parallel via Send() API
-  return [Send("work_step", s) for s in state["plan"]["steps"]]
+  return [Send("work_step", s) for s in state["plan"].steps]
   

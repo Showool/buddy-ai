@@ -11,59 +11,53 @@ def router(state: GraphState) -> dict:
 
     query = messages[-1].content
     llm_with_schema = get_llm().with_structured_output(RouteSchema, method="json_mode")
-    ROUTER_PROMPT = f"""
-        # 角色设定
-        你是智能需求分类助手，核心职责是精准识别用户输入的需求类型，为后续服务路径匹配提供决策依据。
+    ROUTER_PROMPT = f"""你是意图分类器。判断用户输入属于以下哪个类别，输出 JSON。
 
-        # 用户输入
-        <user_input>{query}</user_input>
+    <user_input>{query}</user_input>
 
-        # 核心规则
-        ## 必做事项
-        1. 当用户输入包含明确知识获取诉求（如“什么是...”“如何理解...”“XX的定义是”）时，判定为knowledge_base_search。
-        2. 当用户输入涉及多步骤操作、资源调度或复杂问题解决（如“帮我完成XX任务”“规划XX流程”“执行XX操作”）时，判定为plan_and_execute。
-        3. 所有未触发上述条件的需求，默认归类为answer_directly。
+    ## 类别定义（按意图本质判断，不要仅依赖表面关键词）
 
-        ## 约束条件
-        1. 禁止主观扩展用户需求范围，严格依据输入文本判定。
-        2. 若需求同时符合多个类别特征，优先匹配优先级更高的类别（plan_and_execute  knowledge_base_search  answer_directly）。
-        3. 对于模糊需求（如仅包含关键词无明确意图），默认归类为answer_directly。
+    plan_and_execute：用户的真实意图需要拆解为多个有依赖关系的子步骤才能完成。
+    特征：任务涉及规划、流程编排、多阶段执行、资源协调。
+    典型场景：制定方案、项目规划、多步骤任务执行、流程设计。
+    注意："帮我解释XX"虽含"帮我"，但本质是知识查询，不属于此类。
 
-        # 输入处理
-        读取用户输入，按以下优先级处理：
-        1. 优先识别是否包含复杂任务执行关键词（如“帮我”“规划”“执行”“完成”）。
-        2. 其次识别是否包含知识获取关键词（如“什么是”“如何”“定义”“解释”）。
-        3. 若未识别到上述关键词，直接判定为默认类别。
+    knowledge_base_search：用户想获取特定领域的知识、概念、原理或事实信息。
+    特征：问题有明确的知识性答案，需要检索专业资料才能准确回答。
+    典型场景：概念解释、原理阐述、技术细节查询、专业知识问答。
 
-        # 执行流程
-        1. 需求解析：分析用户输入中的核心诉求，提取关键动作词与意图指向。
-        2. 类别匹配：根据核心规则判断需求所属类别，记录匹配依据。
-        3. 结果输出：生成包含类别标签与判定理由的结构化结果。
+    answer_directly：简单对话、闲聊、打招呼、观点讨论、或基于常识即可回答的问题。
+    特征：无需检索知识库，也无需多步骤规划。
+    典型场景：日常问候、简单计算、常识问答、情感表达、意图模糊的输入。
 
-        # 输出规范
-        1. 结构框架：采用JSON格式，包含“route_decision”（类别标签）和“route_reason”（判定理由）两个字段。
-        2. 标签使用：类别标签严格限定为answer_directly、knowledge_base_search、plan_and_execute三者之一。
-        3. 语言风格：判定理由需简洁明了，直接引用用户输入中的关键信息。
-        4. 字数限制：整体输出不超过100字。
+    ## 判断流程
+    1. 提取用户的核心意图——他想"知道什么"还是"完成什么"还是"聊什么"。
+    2. 若意图是"完成一个需要多步骤协作的任务" → plan_and_execute。
+    3. 若意图是"获取特定知识或专业信息" → knowledge_base_search。
+    4. 其余情况 → answer_directly。
 
-        示例输出：
-        {{
-            "route_decision": "knowledge_base_search",
-            "route_reason": "用户询问'什么是人工智能'，属于知识获取需求"
-        }}
+    ## 边界case处理
+    - 意图模糊或仅含孤立关键词 → answer_directly。
+    - 同时含知识查询和任务执行特征 → 以核心意图为准：若最终目的是获取知识则 knowledge_base_search，若最终目的是完成任务则 plan_and_execute。
 
-        """
+    ## 输出格式
+    严格输出 JSON，不附加任何额外文字。route_reason 需简洁引用用户输入中的关键信息说明判断依据，不超过50字。
+
+    {{
+    "route_decision": "类别标签",
+    "route_reason": "判定理由"
+    }}
+    """
     route_result: RouteSchema = llm_with_schema.invoke(ROUTER_PROMPT)
     return {
         "route_decision": route_result.route_decision,
         "route_reason": route_result.route_reason,
         "original_input": query,
         "enhanced_input": None,
-        "query_transform_type": None,
         "rag_docs": [],
         "plan": None,
-        "reflection_count": 0,  # 初始化评估计数
-        "reflection": None,  # 清除之前的评估状态
+        "reflection_count": 0,
+        "reflection": None,
         "draft_answer": None,
         "final_answer": None,
     }
