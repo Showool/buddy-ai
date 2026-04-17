@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # ========== 数据库配置 ==========
     REDIS_URL: str = "redis://localhost:6379/0"
-    MYSQL_URL: str = "mysql+aiomysql://root:123456@localhost:3306/fastapi_test?charset=utf8"
+    MYSQL_URL: str = "mysql+aiomysql://root:123456@localhost:3306/buddy_ai?charset=utf8"
 
     # ========== Milvus 向量库配置 (mem0) ==========
     MILVUS_URL: str = "http://localhost:19530"

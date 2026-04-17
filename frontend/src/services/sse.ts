@@ -1,4 +1,5 @@
 import type { SSEJsonLine } from '@/types'
+import request from './request'
 
 export interface SSEClientOptions {
   onWorkflowNode: (data: { content: string; node: string }) => void
@@ -20,8 +21,6 @@ function dispatchEvent(
   try {
     const parsed: SSEJsonLine = JSON.parse(dataStr)
 
-    // Determine event type: explicit SSE event field takes priority,
-    // then fall back to the "event" field inside the JSON payload
     const event = eventType || parsed.event
 
     if (parsed.error) {
@@ -40,13 +39,51 @@ function dispatchEvent(
       })
     }
   } catch {
-    // JSON parse failed — treat as error
     options.onError(`Failed to parse SSE data: ${dataStr}`)
   }
 }
 
 /**
- * Create an SSE connection using fetch + ReadableStream.
+ * 处理 SSE 流式响应的行解析
+ */
+function processStreamBuffer(
+  buffer: string,
+  state: { currentEvent: string | null; currentData: string },
+  options: SSEClientOptions,
+): string {
+  const lines = buffer.split('\n')
+  const remaining = lines.pop() ?? ''
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (trimmed === '') {
+      if (state.currentData) {
+        dispatchEvent(state.currentEvent, state.currentData, options)
+        state.currentEvent = null
+        state.currentData = ''
+      }
+      continue
+    }
+
+    if (trimmed.startsWith('event:')) {
+      state.currentEvent = trimmed.slice(6).trim()
+    } else if (trimmed.startsWith('data:')) {
+      const dataValue = trimmed.slice(5).trim()
+      state.currentData = state.currentData ? `${state.currentData}\n${dataValue}` : dataValue
+    } else if (trimmed.startsWith(':')) {
+      // SSE comment — ignore
+    } else if (trimmed.startsWith('{')) {
+      dispatchEvent(null, trimmed, options)
+    }
+  }
+
+  return remaining
+}
+
+
+/**
+ * Create an SSE connection using axios + ReadableStream.
  *
  * Sends a POST request to /agent/chat with JSON body containing
  * user_id, thread_id, and user_input. Reads the response stream
@@ -65,98 +102,51 @@ export function createSSEConnection(
 
   const run = async () => {
     try {
-      const response = await fetch('/agent/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          thread_id: threadId,
-          user_input: userInput,
-        }),
+      const response = await request.post('/agent/chat', {
+        user_id: userId,
+        thread_id: threadId,
+        user_input: userInput,
+      }, {
+        headers: { Accept: 'text/event-stream' },
+        responseType: 'stream',
+        adapter: 'fetch',
         signal: controller.signal,
       })
 
-      if (!response.ok) {
-        options.onError(`HTTP error: ${response.status} ${response.statusText}`)
-        options.onComplete()
-        return
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        options.onError('Response body is not readable')
-        options.onComplete()
-        return
-      }
-
+      const stream: ReadableStream<Uint8Array> = response.data
+      const reader = stream.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      // SSE parsing state
-      let currentEvent: string | null = null
-      let currentData = ''
+      const state = { currentEvent: null as string | null, currentData: '' }
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-
-        // Process complete lines from the buffer
-        const lines = buffer.split('\n')
-        // Keep the last incomplete line in the buffer
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-
-          if (trimmed === '') {
-            // Empty line = end of an SSE event block
-            if (currentData) {
-              dispatchEvent(currentEvent, currentData, options)
-              currentEvent = null
-              currentData = ''
-            }
-            continue
-          }
-
-          if (trimmed.startsWith('event:')) {
-            // SSE event type line
-            currentEvent = trimmed.slice(6).trim()
-          } else if (trimmed.startsWith('data:')) {
-            // SSE data line (may span multiple lines, concatenate with newline)
-            const dataValue = trimmed.slice(5).trim()
-            currentData = currentData ? `${currentData}\n${dataValue}` : dataValue
-          } else if (trimmed.startsWith(':')) {
-            // SSE comment line — ignore
-          } else if (trimmed.startsWith('{')) {
-            // Plain JSON line (fallback for non-SSE format)
-            dispatchEvent(null, trimmed, options)
-          }
-        }
+        buffer = processStreamBuffer(buffer, state, options)
       }
 
-      // Flush any remaining data in the buffer
+      // Flush remaining buffer
       const remaining = buffer.trim()
       if (remaining) {
-        if (currentData || remaining.startsWith('data:')) {
+        if (state.currentData || remaining.startsWith('data:')) {
           if (remaining.startsWith('data:')) {
             const dataValue = remaining.slice(5).trim()
-            currentData = currentData ? `${currentData}\n${dataValue}` : dataValue
+            state.currentData = state.currentData
+              ? `${state.currentData}\n${dataValue}`
+              : dataValue
           }
-          if (currentData) {
-            dispatchEvent(currentEvent, currentData, options)
+          if (state.currentData) {
+            dispatchEvent(state.currentEvent, state.currentData, options)
           }
         } else if (remaining.startsWith('{')) {
           dispatchEvent(null, remaining, options)
         }
       }
     } catch (err: unknown) {
-      // AbortError is expected when the connection is intentionally closed
       if (err instanceof DOMException && err.name === 'AbortError') {
-        // Connection was intentionally aborted — not an error
+        // Connection was intentionally aborted
       } else {
         const message = err instanceof Error ? err.message : String(err)
         options.onError(message)

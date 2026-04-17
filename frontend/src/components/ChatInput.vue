@@ -59,6 +59,7 @@ import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { uploadFile, isFileAllowed } from '@/services/api'
 import { useUserStore } from '@/stores/user'
+import { DEFAULT_KNOWLEDGE_ID } from '@/types'
 
 interface Props {
   placeholder?: string
@@ -110,6 +111,10 @@ function handleKeydown(e: KeyboardEvent) {
 
 function handleSend() {
   if (!canSend.value) return
+  if (!props.userId) {
+    ElMessage.warning('请先在侧边栏设置中配置 User ID')
+    return
+  }
   const message = inputText.value.trim()
   inputText.value = ''
   nextTick(() => autoResize())
@@ -139,9 +144,9 @@ async function handleFileChange(e: Event) {
 
   uploading.value = true
   try {
-    await uploadFile(file, props.userId, 1)
+    await uploadFile(file, props.userId, DEFAULT_KNOWLEDGE_ID)
     ElMessage.success(`文件 ${file.name} 上传成功`)
-    useUserStore().kbNeedRefresh = true
+    useUserStore().kbRefreshCount++
   } catch (err) {
     const msg = err instanceof Error ? err.message : '上传失败'
     ElMessage.error(msg)

@@ -31,3 +31,8 @@ dependencies = [
     "transformers>=5.5.3",
     "wikipedia>=1.4.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

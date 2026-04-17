@@ -1,8 +1,14 @@
+import logging
 from collections.abc import AsyncGenerator
-from fastapi import HTTPException
+
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
 from apps.config import settings
 from apps.database.models import Base
+from apps.exceptions import DatabaseError
+
+logger = logging.getLogger(__name__)
 
 async_engine = create_async_engine(
   settings.MYSQL_URL, 
@@ -26,9 +32,14 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
+        except SQLAlchemyError as e:
+            await session.rollback()
+            logger.error("数据库操作失败: %s", e, exc_info=True)
+            raise DatabaseError("操作", str(e)) from e
         except Exception as e:
             await session.rollback()
-            raise HTTPException(status_code=500, detail=f"数据库操作失败: {e}") from e
+            logger.error("未知错误: %s", e, exc_info=True)
+            raise
 
 
 async def create_tables():

@@ -11,9 +11,7 @@ function parseBool(value: string | undefined): boolean {
   return value?.toLowerCase() === 'true'
 }
 
-if (import.meta.env.DEV) {
-  validateEnv()
-}
+validateEnv()
 
 export const env = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL,

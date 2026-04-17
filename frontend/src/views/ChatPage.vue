@@ -15,11 +15,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 import { createSSEConnection } from '@/services/sse'
-import { nanoid } from 'nanoid'
 import ChatWindow from '@/components/ChatWindow.vue'
 import ChatInput from '@/components/ChatInput.vue'
 
@@ -28,24 +26,23 @@ const router = useRouter()
 const chatStore = useChatStore()
 const userStore = useUserStore()
 
-// 输入文本
 const inputText = ref('')
 
-// 安全解析 threadId
 const rawId = route.params.threadId
 const threadId = Array.isArray(rawId) ? rawId[0] : rawId
 
 // 校验 thread 是否存在，不存在则重定向
-if (!threadId || !chatStore.threads.has(threadId)) {
+const isValid = !!(threadId && chatStore.threads.has(threadId))
+if (!isValid) {
   router.replace('/')
 }
 
-chatStore.switchThread(threadId)
+if (isValid) {
+  chatStore.switchThread(threadId)
+}
 
-/**
- * 发送消息到 SSE
- */
 function sendToSSE(content: string) {
+  if (!isValid) return
   chatStore.setStreaming(true)
 
   const controller = createSSEConnection(
@@ -65,43 +62,26 @@ function sendToSSE(content: string) {
       onComplete() {
         chatStore.setStreaming(false)
       },
-    }
+    },
   )
 
-  // 保存 controller，切换对话时可取消
   chatStore.setActiveController(controller)
 }
 
-/**
- * 处理发送消息
- */
 function handleSend(message: string) {
-  if (!userStore.userId) {
-    ElMessage.warning('请先在侧边栏设置中配置 User ID')
-    return
-  }
-
-  chatStore.addMessage(threadId, {
-    id: nanoid(),
-    role: 'user',
-    content: message,
-    timestamp: Date.now(),
-  })
-
+  chatStore.addUserMessage(threadId, message)
   sendToSSE(message)
 }
 
-// 处理自动发送（从欢迎页跳转）
 onMounted(() => {
-  if (route.query.autoSend === 'true') {
-    // 先清除 query 参数，避免 fullPath 变化导致组件重建
-    router.replace({ name: 'Chat', params: { threadId } })
+  if (!isValid) return
+
+  if (chatStore.pendingSend) {
+    chatStore.pendingSend = false
 
     const thread = chatStore.threads.get(threadId)
     if (thread && thread.messages.length > 0) {
-      const lastUserMsg = [...thread.messages]
-        .reverse()
-        .find((m) => m.role === 'user')
+      const lastUserMsg = thread.messages.findLast((m) => m.role === 'user')
       if (lastUserMsg) {
         sendToSSE(lastUserMsg.content)
       }
@@ -109,7 +89,6 @@ onMounted(() => {
   }
 })
 
-// 组件卸载时取消 SSE 连接
 onUnmounted(() => {
   chatStore.cancelActiveStream()
 })

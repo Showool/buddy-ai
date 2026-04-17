@@ -17,7 +17,7 @@
           v-else
           class="message-bubble assistant"
           :class="{ error: msg.content.startsWith('❌') }"
-          v-html="renderMarkdown(msg.content)"
+          v-html="renderedHtmlMap.get(msg.id) ?? ''"
         />
       </div>
 
@@ -79,18 +79,42 @@ const showTyping = computed(() => {
   return last.role !== 'assistant' || !last.content
 })
 
+const SANITIZE_OPTIONS = {
+  ALLOWED_TAGS: [
+    'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a',
+    'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'del', 'span',
+  ],
+  ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+  ALLOW_DATA_ATTR: false,
+}
+
 function renderMarkdown(content: string): string {
   const raw = md.render(content)
-  return DOMPurify.sanitize(raw, {
-    ALLOWED_TAGS: [
-      'p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a',
-      'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr',
-      'table', 'thead', 'tbody', 'tr', 'th', 'td', 'del', 'span',
-    ],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
-    ALLOW_DATA_ATTR: false,
-  })
+  return DOMPurify.sanitize(raw, SANITIZE_OPTIONS)
 }
+
+/**
+ * 缓存每条消息的 markdown 渲染结果
+ * 只有内容变化时才重新渲染，避免流式输出时对所有历史消息重复计算
+ */
+const mdCache = new Map<string, { content: string; html: string }>()
+
+const renderedHtmlMap = computed(() => {
+  const result = new Map<string, string>()
+  for (const msg of messages.value) {
+    if (msg.role !== 'assistant') continue
+    const cached = mdCache.get(msg.id)
+    if (cached && cached.content === msg.content) {
+      result.set(msg.id, cached.html)
+    } else {
+      const html = renderMarkdown(msg.content)
+      mdCache.set(msg.id, { content: msg.content, html })
+      result.set(msg.id, html)
+    }
+  }
+  return result
+})
 
 function scrollToBottom() {
   nextTick(() => {
@@ -98,12 +122,10 @@ function scrollToBottom() {
   })
 }
 
-watch(() => messages.value.length, () => scrollToBottom())
 watch(
   () => {
     const msgs = messages.value
-    if (msgs.length === 0) return ''
-    return msgs[msgs.length - 1].content
+    return msgs.length ? `${msgs.length}:${msgs[msgs.length - 1].content}` : ''
   },
   () => scrollToBottom(),
 )

@@ -44,5 +44,19 @@ class MemoryManager:
         logger.info("Mem0 Memory 实例已创建 (Milvus: %s)", settings.MILVUS_URL)
 
 
-memoryClient = MemoryManager().memory_client
+# 模块级单例，由 lifespan 初始化
+_memory_client = None
+
+
+def init_memory():
+    """初始化 memory_client 并缓存为单例"""
+    global _memory_client
+    _memory_client = MemoryManager().memory_client
+
+
+def get_memory_client():
+    """获取已初始化的 memory_client 单例"""
+    if _memory_client is None:
+        raise RuntimeError("MemoryClient 未初始化，请先在 lifespan 中调用 init_memory()")
+    return _memory_client
 

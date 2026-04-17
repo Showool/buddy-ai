@@ -9,6 +9,7 @@ from apps.database.async_engine import create_tables
 from apps.api.knowledgebase import router as knowledgebase_router
 from apps.api.agent_chat import router as agent_chat_router
 from apps.agent.graph import init_graph
+from apps.agent.memory.mem0 import init_memory
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
@@ -19,8 +20,9 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """初始化数据库表 & Agent Graph"""
+    """初始化数据库表 & Agent Graph & Memory"""
     await create_tables()
+    init_memory()
     with RedisSaver.from_conn_string(settings.REDIS_URL) as checkpointer:
         checkpointer.setup()
         init_graph(checkpointer)
@@ -34,5 +36,6 @@ app.include_router(agent_chat_router)
 
 
 @app.get("/")
-def read_root():
+def read_root() -> dict[str, str]:
+    """健康检查端点"""
     return {"Hello": "Buddy-AI Backend"}

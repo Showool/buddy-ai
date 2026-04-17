@@ -1,3 +1,3 @@
-from .mem0 import memoryClient
+from .mem0 import init_memory, get_memory_client
 
-__all__ = ["memoryClient"]
+__all__ = ["init_memory", "get_memory_client"]

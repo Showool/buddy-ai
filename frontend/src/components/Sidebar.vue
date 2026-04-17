@@ -50,11 +50,13 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 import { nanoid } from 'nanoid'
 import { getFiles, deleteFile, downloadFile } from '@/services/api'
 import type { KnowledgeFile } from '@/types'
+import { DEFAULT_KNOWLEDGE_ID } from '@/types'
 import SidebarSettings from './SidebarSettings.vue'
 
 const router = useRouter()
@@ -63,15 +65,15 @@ const userStore = useUserStore()
 
 const fileList = ref<KnowledgeFile[]>([])
 const fileLoading = ref(false)
-const knowledgeId = 1 // 默认知识库ID
 
 async function fetchFiles() {
   if (!userStore.userId) return
   fileLoading.value = true
   try {
-    fileList.value = await getFiles(userStore.userId, knowledgeId)
+    fileList.value = await getFiles(userStore.userId, DEFAULT_KNOWLEDGE_ID)
   } catch (e) {
-    console.error('获取文件列表失败', e)
+    const msg = e instanceof Error ? e.message : '获取文件列表失败'
+    ElMessage.error(msg)
   } finally {
     fileLoading.value = false
   }
@@ -81,17 +83,19 @@ async function handleDownload(file: KnowledgeFile) {
   try {
     await downloadFile(file.id, file.file_name)
   } catch (e) {
-    console.error('下载失败', e)
+    const msg = e instanceof Error ? e.message : '下载失败'
+    ElMessage.error(msg)
   }
 }
 
 async function handleDeleteFile(file: KnowledgeFile) {
   if (!userStore.userId) return
   try {
-    await deleteFile(userStore.userId, knowledgeId, file.id)
+    await deleteFile(userStore.userId, DEFAULT_KNOWLEDGE_ID, file.id)
     fileList.value = fileList.value.filter((f) => f.id !== file.id)
   } catch (e) {
-    console.error('删除文件失败', e)
+    const msg = e instanceof Error ? e.message : '删除文件失败'
+    ElMessage.error(msg)
   }
 }
 
@@ -114,20 +118,12 @@ function handleDelete(threadId: string) {
   }
 }
 
-onMounted(() => {
-  fetchFiles()
-})
+onMounted(fetchFiles)
 
-watch(() => userStore.userId, (val) => {
-  if (val) fetchFiles()
-})
-
-watch(() => userStore.kbNeedRefresh, (val) => {
-  if (val) {
-    fetchFiles()
-    userStore.kbNeedRefresh = false
-  }
-})
+watch(
+  () => [userStore.userId, userStore.kbRefreshCount] as const,
+  ([userId]) => { if (userId) fetchFiles() },
+)
 </script>
 
 <style scoped>

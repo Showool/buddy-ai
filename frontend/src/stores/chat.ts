@@ -26,6 +26,7 @@ export const useChatStore = defineStore('chat', () => {
   const threads = ref(loadThreads())
   const currentThreadId = ref<string | null>(null)
   const isStreaming = ref(false)
+  const pendingSend = ref(false)
   let activeController: AbortController | null = null
 
   const threadList = computed(() =>
@@ -73,39 +74,38 @@ export const useChatStore = defineStore('chat', () => {
     persist()
   }
 
-  function appendToLastAIMessage(threadId: string, content: string) {
+  function addUserMessage(threadId: string, content: string) {
+    addMessage(threadId, {
+      id: nanoid(),
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+    })
+  }
+
+  /**
+   * 更新或创建最后一条 assistant 消息
+   * @param append true=追加内容 false=替换内容
+   */
+  function upsertAssistantMessage(threadId: string, content: string, append: boolean) {
     const thread = threads.value.get(threadId)
     if (!thread) return
     const last = thread.messages[thread.messages.length - 1]
     if (last && last.role === 'assistant') {
-      last.content += content
+      last.content = append ? last.content + content : content
     } else {
-      thread.messages.push({
-        id: nanoid(),
-        role: 'assistant',
-        content,
-        timestamp: Date.now(),
-      })
+      thread.messages.push({ id: nanoid(), role: 'assistant', content, timestamp: Date.now() })
     }
     thread.updatedAt = Date.now()
+  }
+
+  function appendToLastAIMessage(threadId: string, content: string) {
+    upsertAssistantMessage(threadId, content, true)
     // 流式追加时不频繁写 localStorage，等 setStreaming(false) 时统一持久化
   }
 
   function setFinalAnswer(threadId: string, content: string) {
-    const thread = threads.value.get(threadId)
-    if (!thread) return
-    const last = thread.messages[thread.messages.length - 1]
-    if (last && last.role === 'assistant') {
-      last.content = content
-    } else {
-      thread.messages.push({
-        id: nanoid(),
-        role: 'assistant',
-        content,
-        timestamp: Date.now(),
-      })
-    }
-    thread.updatedAt = Date.now()
+    upsertAssistantMessage(threadId, content, false)
     persist()
   }
 
@@ -132,11 +132,13 @@ export const useChatStore = defineStore('chat', () => {
     threads,
     currentThreadId,
     isStreaming,
+    pendingSend,
     threadList,
     createThread,
     switchThread,
     deleteThread,
     addMessage,
+    addUserMessage,
     appendToLastAIMessage,
     setFinalAnswer,
     setStreaming,

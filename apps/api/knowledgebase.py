@@ -15,6 +15,7 @@ from apps.agent.rag import milvusVector
 from apps.agent.utils.id_util import generate_id
 from apps.database.async_engine import get_session
 from apps.database.models import KnowledgeBaseFile
+from apps.exceptions import NotFoundError
 from apps.models.request_params import DeleteFileParams
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ async def delete_file(params: DeleteFileParams, session: AsyncSession = Depends(
     )
     doc = result.scalar_one_or_none()
     if not doc:
-        raise HTTPException(status_code=500, detail="文件不存在")
+        raise NotFoundError("文件", f"id={params.file_id}")
     await session.delete(doc)
     milvusVector.delete_documents(params.file_id, params.user_id, params.knowledge_id)
     return {"message": "删除成功", "file_id": params.file_id}

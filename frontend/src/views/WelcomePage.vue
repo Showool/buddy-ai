@@ -18,7 +18,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { useUserStore } from '@/stores/user'
 import { nanoid } from 'nanoid'
@@ -30,33 +29,14 @@ const userStore = useUserStore()
 
 const inputText = ref('')
 
-/**
- * 处理发送消息
- */
 function handleSend(message: string) {
-  if (!userStore.userId) {
-    ElMessage.warning('请先在侧边栏设置中配置 User ID')
-    return
-  }
-
   const threadId = nanoid()
 
   chatStore.createThread(threadId, message)
+  chatStore.addUserMessage(threadId, message)
+  chatStore.pendingSend = true
 
-  chatStore.addMessage(threadId, {
-    id: nanoid(),
-    role: 'user',
-    content: message,
-    timestamp: Date.now(),
-  })
-
-  inputText.value = ''
-
-  router.push({
-    name: 'Chat',
-    params: { threadId },
-    query: { autoSend: 'true' },
-  })
+  router.push({ name: 'Chat', params: { threadId } })
 }
 </script>
 
