@@ -72,6 +72,8 @@ pip-selfcheck.json
 # Frontend dependencies
 frontend/node_modules/
 frontend/dist/
+frontend/auto-imports.d.ts
+frontend/components.d.ts
 
 # Jupyter Notebook
 .ipynb_checkpoints/
