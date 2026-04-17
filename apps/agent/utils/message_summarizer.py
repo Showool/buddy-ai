@@ -3,15 +3,20 @@ Messages 摘要压缩工具
 保留最近 N 条消息，超出部分用 LLM 生成摘要，
 通过 RemoveMessage 删除旧消息并插入摘要 SystemMessage 回写 state。
 """
+
 import logging
-from langchain_core.messages import SystemMessage, ToolMessage, RemoveMessage
+from typing import Any
+
+from langchain_core.messages import BaseMessage, RemoveMessage, SystemMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
 
 KEEP_RECENT = 5  # 保留最近 N 条消息
 
 
-def summarize_and_prune_messages(messages: list, llm, keep_recent: int = KEEP_RECENT) -> list | None:
+def summarize_and_prune_messages(
+    messages: list[BaseMessage], llm: Any, keep_recent: int = KEEP_RECENT
+) -> list[BaseMessage] | None:
     """
     对 messages 进行摘要压缩，返回需要回写 state 的 messages 更新列表。
     - 总条数 <= keep_recent 时返回 None（无需更新）
@@ -33,7 +38,7 @@ def summarize_and_prune_messages(messages: list, llm, keep_recent: int = KEEP_RE
         return None
 
     # 构建 state 更新：删除旧消息 + 插入摘要
-    updates = []
+    updates: list[BaseMessage] = []
     for msg in old_messages:
         updates.append(RemoveMessage(id=msg.id))
     updates.append(SystemMessage(content=f"以下是之前对话的摘要:\n{summary}"))
@@ -41,7 +46,7 @@ def summarize_and_prune_messages(messages: list, llm, keep_recent: int = KEEP_RE
     return updates
 
 
-def _find_safe_split_index(messages: list, keep_recent: int) -> int:
+def _find_safe_split_index(messages: list[BaseMessage], keep_recent: int) -> int:
     """
     找到安全的切割点，确保不会把 AIMessage(tool_calls) 和对应的 ToolMessage 拆开。
     """
@@ -54,7 +59,7 @@ def _find_safe_split_index(messages: list, keep_recent: int) -> int:
     return max(index, 0)
 
 
-def _generate_summary(messages: list, llm) -> str:
+def _generate_summary(messages: list[BaseMessage], llm: Any) -> str:
     """用 LLM 对旧消息生成摘要"""
     parts = []
     for msg in messages:
@@ -75,4 +80,4 @@ def _generate_summary(messages: list, llm) -> str:
     )
 
     result = llm.invoke(summary_prompt)
-    return result.content
+    return str(result.content)

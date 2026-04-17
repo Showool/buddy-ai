@@ -100,8 +100,30 @@ export function createSSEConnection(
 ): AbortController {
   const controller = new AbortController()
 
+  // 空闲超时：连续 120 秒无数据则认为连接异常，主动断开
+  const IDLE_TIMEOUT_MS = 120_000
+
   const run = async () => {
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        controller.abort()
+        options.onError('连接超时：服务端长时间无响应')
+      }, IDLE_TIMEOUT_MS)
+    }
+
+    const clearIdleTimer = () => {
+      if (idleTimer) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
+    }
+
     try {
+      resetIdleTimer()
+
       const response = await request.post('/agent/chat', {
         user_id: userId,
         thread_id: threadId,
@@ -111,6 +133,7 @@ export function createSSEConnection(
         responseType: 'stream',
         adapter: 'fetch',
         signal: controller.signal,
+        timeout: 0, // SSE 长连接，禁用 axios 请求级超时，由空闲超时接管
       })
 
       const stream: ReadableStream<Uint8Array> = response.data
@@ -123,6 +146,7 @@ export function createSSEConnection(
         const { done, value } = await reader.read()
         if (done) break
 
+        resetIdleTimer()
         buffer += decoder.decode(value, { stream: true })
         buffer = processStreamBuffer(buffer, state, options)
       }
@@ -152,6 +176,7 @@ export function createSSEConnection(
         options.onError(message)
       }
     } finally {
+      clearIdleTimer()
       options.onComplete()
     }
   }

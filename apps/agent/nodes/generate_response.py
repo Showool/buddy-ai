@@ -1,3 +1,5 @@
+from typing import Any
+
 from langchain_core.messages import SystemMessage
 
 from apps.agent.llm.llm_factory import get_llm
@@ -6,7 +8,7 @@ from apps.agent.tools import get_tools
 from apps.agent.utils.message_summarizer import summarize_and_prune_messages
 
 
-def generate_response(state: GraphState) -> dict:
+def generate_response(state: GraphState) -> dict[str, Any]:
     """统一响应节点 - ReAct 模式"""
     if (state["reflection"] and state["reflection"].passed) or state["reflection_count"] >= 3:
         return {"final_answer": state["draft_answer"]}
@@ -14,13 +16,13 @@ def generate_response(state: GraphState) -> dict:
     retrieval_data = "/n".join([d["document_text"] for d in state["rag_docs"]]) if state["rag_docs"] else ""
     feedback = state["reflection"].feedback if state["reflection"] else ""
 
-    GENERATE_RESPONSE_PROMPT = f"""
+    generate_response_prompt = f"""
     你是知识问答助手。基于提供的上下文信息回答用户问题，必要时调用工具补充信息。
 
     ## 上下文信息
-    <user_input>{state['original_input']}</user_input>
-    <enhanced_input>{state['enhanced_input'] or "无"}</enhanced_input>
-    <memory_context>{state['memory_context'] or "无"}</memory_context>
+    <user_input>{state["original_input"]}</user_input>
+    <enhanced_input>{state["enhanced_input"] or "无"}</enhanced_input>
+    <memory_context>{state["memory_context"] or "无"}</memory_context>
     <retrieval_data>{retrieval_data or "无"}</retrieval_data>
     <feedback>{feedback or "无"}</feedback>
 
@@ -73,6 +75,7 @@ def generate_response(state: GraphState) -> dict:
     if prune_updates is not None:
         # 从 prune_updates 中提取非 RemoveMessage 的消息作为上下文
         from langchain_core.messages import RemoveMessage
+
         compressed_messages = [m for m in prune_updates if not isinstance(m, RemoveMessage)]
         # 加上保留的最近消息（未被删除的部分）
         removed_ids = {m.id for m in prune_updates if isinstance(m, RemoveMessage)}
@@ -82,9 +85,7 @@ def generate_response(state: GraphState) -> dict:
         prune_updates = []
         llm_messages = messages
 
-    response = llm_with_tools.invoke(
-        [SystemMessage(content=GENERATE_RESPONSE_PROMPT)] + llm_messages
-    )
+    response = llm_with_tools.invoke([SystemMessage(content=generate_response_prompt)] + llm_messages)
 
     if not response.tool_calls:
         return {"messages": prune_updates, "draft_answer": response.content}

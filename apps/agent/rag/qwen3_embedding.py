@@ -6,21 +6,21 @@ Qwen3 嵌入模型模块
 """
 
 import logging
-from typing import Optional, List
 
-from langchain_core.embeddings import Embeddings as LCEmbeddings
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
+from langchain_core.embeddings import Embeddings as LCEmbeddings
 from torch import Tensor
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoModel, AutoTokenizer
+
 # from apps.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
-    """最后 token 池化 """
-    left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+    """最后 token 池化"""
+    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
     if left_padding:
         return last_hidden_states[:, -1]
     else:
@@ -42,7 +42,7 @@ class Qwen3EmbeddingModel(LCEmbeddings):
         model_name: str = "Qwen/Qwen3-Embedding-0.6B",
         device: str = "auto",
         max_length: int = 8192,
-        truncate_dim: Optional[int] = None,
+        truncate_dim: int | None = None,
         use_flash_attention: bool = False,
     ):
         self.model_name = model_name
@@ -51,8 +51,8 @@ class Qwen3EmbeddingModel(LCEmbeddings):
         self.truncate_dim = truncate_dim
         self.use_flash_attention = use_flash_attention
 
-        self._tokenizer: Optional[AutoTokenizer] = None
-        self._model: Optional[AutoModel] = None
+        self._tokenizer: AutoTokenizer | None = None
+        self._model: AutoModel | None = None
 
     def _get_model_kwargs(self) -> dict:
         """获取模型加载参数"""
@@ -72,10 +72,7 @@ class Qwen3EmbeddingModel(LCEmbeddings):
             )
 
         if self._model is None:
-            self._model = AutoModel.from_pretrained(
-                self.model_name,
-                **self._get_model_kwargs()
-            )
+            self._model = AutoModel.from_pretrained(self.model_name, **self._get_model_kwargs())
             self._model.to(self.device)
             self._model.eval()
 
@@ -83,23 +80,26 @@ class Qwen3EmbeddingModel(LCEmbeddings):
         logger.info("设备: %s", self.device)
         return self
 
-    def _prepare_input(self, texts: List[str], task: str = None) -> dict:
+    def _prepare_input(self, texts: list[str], task: str = None) -> dict:
         """准备输入数据"""
         if task is None:
             task = self.DEFAULT_TASK
         queries = [f"Instruct: {task}\nQuery: {text}" for text in texts]
         batch_dict = self._tokenizer(
-            queries, padding=True, truncation=True,
-            max_length=self.max_length, return_tensors="pt",
+            queries,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
         )
         batch_dict.to(self.device)
         return batch_dict
 
-    def embed_query(self, text: str, task: str = None) -> List[float]:
+    def embed_query(self, text: str, task: str = None) -> list[float]:
         """嵌入单个查询"""
         return self.embed_queries([text], task)[0]
 
-    def embed_queries(self, texts: List[str], task: str = None) -> List[List[float]]:
+    def embed_queries(self, texts: list[str], task: str = None) -> list[list[float]]:
         """嵌入多个查询"""
         if not texts:
             return []
@@ -109,31 +109,34 @@ class Qwen3EmbeddingModel(LCEmbeddings):
         embeddings = last_token_pool(outputs.last_hidden_state, batch_dict["attention_mask"])
         embeddings = F.normalize(embeddings, p=2, dim=1)
         if self.truncate_dim:
-            embeddings = embeddings[:, :self.truncate_dim]
+            embeddings = embeddings[:, : self.truncate_dim]
         return embeddings.cpu().tolist()
 
-    def embed_document(self, text: str) -> List[float]:
+    def embed_document(self, text: str) -> list[float]:
         """嵌入单个文档（无需指令前缀）"""
         return self.embed_documents([text])[0]
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """嵌入多个文档（无需指令前缀）"""
         if not texts:
             return []
         self.load()
         batch_dict = self._tokenizer(
-            texts, padding=True, truncation=True,
-            max_length=self.max_length, return_tensors="pt",
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
         )
         batch_dict.to(self.device)
         outputs = self._model(**batch_dict)
         embeddings = last_token_pool(outputs.last_hidden_state, batch_dict["attention_mask"])
         embeddings = F.normalize(embeddings, p=2, dim=1)
         if self.truncate_dim:
-            embeddings = embeddings[:, :self.truncate_dim]
+            embeddings = embeddings[:, : self.truncate_dim]
         return embeddings.cpu().tolist()
 
-    def __call__(self, text: str) -> List[float]:
+    def __call__(self, text: str) -> list[float]:
         """支持直接调用"""
         return self.embed_query(text)
 
@@ -148,11 +151,11 @@ def main():
     test_document = "人工智能是计算机科学的一个分支，致力于开发能够执行通常需要人类智能的任务的系统。这包括视觉感知、语音识别、决策制定和语言翻译等。"
 
     doc_result = model.embed_document(test_document)
-   
+
     print(f"文档长度: {len(test_document)} 字符")
     print(f"向量维度: {len(doc_result)}")
     result = model.embed_query(test_queries[0])
-   
+
     print(f"输入: {test_queries[0]}")
     print(f"向量维度: {len(result)}")
     print(f"result: {result}")

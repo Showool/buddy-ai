@@ -1,14 +1,15 @@
+from typing import Any
 
 from apps.agent.llm.llm_factory import get_llm
 from apps.agent.state import GraphState, QueryTransformSchema
 
 
-def query_transform(state: GraphState) -> dict:
+def query_transform(state: GraphState) -> dict[str, Any]:
     """查询转换"""
     memory = state.get("memory_context") or "无"
     user_input = state["original_input"]
 
-    QUERY_TRANSFORM_PROMPT = f"""你是查询改写器。根据用户的原始问题和记忆上下文，将问题改写为更适合检索的独立查询。
+    query_transform_prompt = f"""你是查询改写器。根据用户的原始问题和记忆上下文，将问题改写为更适合检索的独立查询。
 
     ## 记忆上下文
     <memory_context>{memory}</memory_context>
@@ -48,7 +49,7 @@ def query_transform(state: GraphState) -> dict:
     """
 
     llm_with_schema = get_llm().with_structured_output(QueryTransformSchema, method="json_mode")
-    response: QueryTransformSchema = llm_with_schema.invoke(QUERY_TRANSFORM_PROMPT)
+    response: QueryTransformSchema = llm_with_schema.invoke(query_transform_prompt)
     if response.transform_flag:
         return {
             "enhanced_input": response.result,

@@ -1,18 +1,31 @@
-from langgraph.graph import START, END, StateGraph
-from langgraph.checkpoint.redis import RedisSaver
+from typing import Any
+
+from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from apps.agent.condition import assign_workers, generate_response_router, route_condition
-from apps.agent.nodes import generate_response, router, retrieve_memories, save_memories, query_transform, query_transform_HyDE, hybrid_search, text_match, plan_step, synthesis_step_results, work_step, evaluate_node
+from apps.agent.nodes import (
+    evaluate_node,
+    generate_response,
+    hybrid_search,
+    plan_step,
+    query_transform,
+    query_transform_HyDE,
+    retrieve_memories,
+    router,
+    save_memories,
+    synthesis_step_results,
+    text_match,
+    work_step,
+)
 from apps.agent.state import GraphState
 from apps.agent.tools import get_tools
-from apps.config import settings
 
 # 模块级单例，由 lifespan 初始化
-_compiled_graph = None
+_compiled_graph: Any = None
 
 
-def build_workflow():
+def build_workflow() -> StateGraph:
     """构建 workflow 图结构（纯图定义，不涉及 checkpointer）"""
     workflow = StateGraph(GraphState)
 
@@ -34,15 +47,17 @@ def build_workflow():
     # 边定义: 记忆检索 → 路由 → ... → 记忆存储
     workflow.add_edge(START, "retrieve_memories")
     workflow.add_edge("retrieve_memories", "router")
-    workflow.add_conditional_edges("router", route_condition, {
-        "query_transform": "query_transform",
-        "query_transform_HyDE": "query_transform_HyDE",
-        "planner": "planner",
-    })
-
     workflow.add_conditional_edges(
-      "planner", assign_workers, ["work_step"]
+        "router",
+        route_condition,
+        {
+            "query_transform": "query_transform",
+            "query_transform_HyDE": "query_transform_HyDE",
+            "planner": "planner",
+        },
     )
+
+    workflow.add_conditional_edges("planner", assign_workers, ["work_step"])
     workflow.add_edge("work_step", "synthesis_step_results")
     workflow.add_edge("query_transform", "generate_response")
     workflow.add_edge("query_transform_HyDE", "hybrid_search")
@@ -54,7 +69,7 @@ def build_workflow():
     workflow.add_conditional_edges(
         "generate_response",
         generate_response_router,
-        {"tool_node": "tool_node", "evaluate_node": "evaluate_node", "save_memories": "save_memories"}
+        {"tool_node": "tool_node", "evaluate_node": "evaluate_node", "save_memories": "save_memories"},
     )
     workflow.add_edge("tool_node", "generate_response")
     workflow.add_edge("evaluate_node", "generate_response")
@@ -64,13 +79,13 @@ def build_workflow():
     return workflow
 
 
-def init_graph(checkpointer):
+def init_graph(checkpointer: Any) -> None:
     """编译 graph 并缓存为单例"""
     global _compiled_graph
     _compiled_graph = build_workflow().compile(checkpointer=checkpointer)
 
 
-def get_graph():
+def get_graph() -> Any:
     """获取已编译的 graph 单例"""
     if _compiled_graph is None:
         raise RuntimeError("Graph 未初始化，请先在 lifespan 中调用 init_graph()")

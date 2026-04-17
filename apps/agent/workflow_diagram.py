@@ -3,8 +3,9 @@ LangGraph 流程图生成工具
 """
 
 import logging
-from pathlib import Path
 import traceback
+from pathlib import Path
+from typing import Any
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -12,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 logger = logging.getLogger(__name__)
 
 
-async def generate_workflow_diagram():
+async def generate_workflow_diagram() -> None:
     """
     生成 LangGraph 工作流程图 PNG 图片
 
@@ -39,7 +40,7 @@ async def generate_workflow_diagram():
         return None
 
 
-def _generate_png_from_graph(compiled_graph, output_file: Path):
+def _generate_png_from_graph(compiled_graph: Any, output_file: Path) -> None:
     """
     使用 LangGraph 方法生成 PNG 图片
 
@@ -68,4 +69,5 @@ def _generate_png_from_graph(compiled_graph, output_file: Path):
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(generate_workflow_diagram())

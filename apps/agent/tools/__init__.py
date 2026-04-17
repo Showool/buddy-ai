@@ -1,5 +1,4 @@
-from .tools import tavily_search_tool
-from .tools import wiki_tool
+from .tools import tavily_search_tool, wiki_tool
 
 get_tools = [
     wiki_tool,

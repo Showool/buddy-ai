@@ -1,3 +1,4 @@
+from typing import Any
 
 from langchain_core.messages import ToolMessage
 
@@ -5,7 +6,7 @@ from apps.agent.llm.llm_factory import get_llm
 from apps.agent.state import GraphState, ReflectionState
 
 
-def _extract_tool_results(messages: list) -> str:
+def _extract_tool_results(messages: list[Any]) -> str:
     """从消息历史中提取工具调用返回的结果"""
     tool_results = []
     for msg in messages:
@@ -14,24 +15,24 @@ def _extract_tool_results(messages: list) -> str:
     return "\n".join(tool_results) if tool_results else "无"
 
 
-def evaluate_node(state: GraphState) -> dict:
+def evaluate_node(state: GraphState) -> dict[str, Any]:
     reflection_count = state["reflection_count"]
     retrieval_data = "\n".join([d["document_text"] for d in state["rag_docs"]]) if state["rag_docs"] else "无"
     memory = state.get("memory_context") or "无"
     enhanced = state.get("enhanced_input") or "无"
     tool_results = _extract_tool_results(state.get("messages", []))
 
-    EVALUATE_PROMPT = f"""你是回答质量评估器。综合用户问题、改写后的问题、记忆上下文、检索数据和工具返回结果，判断回答是否合格。
+    evaluate_prompt = f"""你是回答质量评估器。综合用户问题、改写后的问题、记忆上下文、检索数据和工具返回结果，判断回答是否合格。
 
     ## 输入
-    <user_input>{state['original_input']}</user_input>
+    <user_input>{state["original_input"]}</user_input>
     <enhanced_input>{enhanced}</enhanced_input>
     <memory_context>{memory}</memory_context>
     <retrieval_data>{retrieval_data}</retrieval_data>
     <tool_results>{tool_results}</tool_results>
 
     ## 待评估回答
-    <answer>{state['draft_answer']}</answer>
+    <answer>{state["draft_answer"]}</answer>
 
     ## 评估流程（逐步执行）
 
@@ -45,11 +46,11 @@ def evaluate_node(state: GraphState) -> dict:
     Step 3 - 逐维度评估（任一不通过则整体不合格）：
 
       3.1 相关性：<answer> 是否针对 Step 1 还原后的完整问题？是否答非所问或偏离主题？
-      
+
       3.2 事实准确性：<answer> 中的事实性陈述是否与 Step 2 的事实基准一致？是否存在与记忆、检索数据或工具返回结果矛盾的内容？是否编造了所有参考信息中均不存在的事实？
-      
+
       3.3 完整性：Step 1 中列出的关键子问题是否都被 <answer> 覆盖？记忆、检索和工具返回中的重要相关信息是否被合理利用？
-      
+
       3.4 逻辑一致性：<answer> 内部是否前后矛盾？推理是否合理？
 
     Step 4 - 输出结论：
@@ -77,8 +78,5 @@ def evaluate_node(state: GraphState) -> dict:
     }}
     """
     llm_with_schema = get_llm().with_structured_output(ReflectionState, method="json_mode")
-    response = llm_with_schema.invoke(EVALUATE_PROMPT)
-    return {
-        "reflection": response,
-        "reflection_count": reflection_count + 1
-    }
+    response = llm_with_schema.invoke(evaluate_prompt)
+    return {"reflection": response, "reflection_count": reflection_count + 1}

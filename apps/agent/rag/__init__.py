@@ -1,5 +1,5 @@
-from .milvus_vector import milvusVector
+from .milvus_vector import milvus_vector
 
 __all__ = [
-    "milvusVector",
+    "milvus_vector",
 ]

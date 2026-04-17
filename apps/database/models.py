@@ -1,11 +1,13 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, func, LargeBinary, String
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from sqlalchemy import BigInteger, LargeBinary, String, func
 from sqlalchemy.dialects.mysql import TINYINT
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     """所有模型的公共基类"""
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, comment="主键ID")
     creator_id: Mapped[str] = mapped_column(String(64), comment="创建者ID")
     create_time: Mapped[datetime] = mapped_column(server_default=func.now(), comment="创建时间")

@@ -2,15 +2,18 @@
 Messages 摘要压缩工具
 保留最近 N 条消息，超出部分用 LLM 生成摘要替换为 SystemMessage。
 """
+
 import logging
-from langchain_core.messages import SystemMessage, ToolMessage
+from typing import Any
+
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
 
 KEEP_RECENT = 5  # 保留最近 N 条消息
 
 
-def summarize_messages(messages: list, llm, keep_recent: int = KEEP_RECENT) -> list:
+def summarize_messages(messages: list[BaseMessage], llm: Any, keep_recent: int = KEEP_RECENT) -> list[BaseMessage]:
     """
     对 messages 进行摘要压缩。
     - 总条数 <= keep_recent 时直接返回原始 messages
@@ -35,7 +38,7 @@ def summarize_messages(messages: list, llm, keep_recent: int = KEEP_RECENT) -> l
         return messages
 
 
-def _find_safe_split_index(messages: list, keep_recent: int) -> int:
+def _find_safe_split_index(messages: list[BaseMessage], keep_recent: int) -> int:
     """
     找到安全的切割点，确保不会把 AIMessage(tool_calls) 和对应的 ToolMessage 拆开。
     """
@@ -48,7 +51,7 @@ def _find_safe_split_index(messages: list, keep_recent: int) -> int:
     return max(index, 0)
 
 
-def _generate_summary(messages: list, llm) -> str:
+def _generate_summary(messages: list[BaseMessage], llm: Any) -> str:
     """用 LLM 对旧消息生成摘要"""
     parts = []
     for msg in messages:
@@ -69,4 +72,4 @@ def _generate_summary(messages: list, llm) -> str:
     )
 
     result = llm.invoke(summary_prompt)
-    return result.content
+    return str(result.content)

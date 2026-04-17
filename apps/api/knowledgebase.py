@@ -1,18 +1,17 @@
-import logging
-import docx
 import hashlib
 import io
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+import logging
 from pathlib import Path
 from urllib.parse import quote
-from sqlalchemy import select, delete
+
+import docx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.agent.rag import milvus_vector
 from apps.agent.rag.document_split import split_document
-from apps.agent.rag import milvusVector
-from apps.agent.utils.id_util import generate_id
 from apps.database.async_engine import get_session
 from apps.database.models import KnowledgeBaseFile
 from apps.exceptions import NotFoundError
@@ -34,11 +33,12 @@ async def validate_file(file: UploadFile = File(...)) -> UploadFile:
 
 
 @router.post("/upload_file")
-async def upload_file(file: UploadFile = Depends(validate_file), 
-                      user_id: str = Form(...), 
-                      knowledge_id: int = Form(...),
-                      session: AsyncSession = Depends(get_session),
-                      ):
+async def upload_file(
+    file: UploadFile = Depends(validate_file),
+    user_id: str = Form(...),
+    knowledge_id: int = Form(...),
+    session: AsyncSession = Depends(get_session),
+):
     """上传单个文件，仅支持 txt、docx、md 格式，返回文件内容。"""
     ext = Path(file.filename or "").suffix.lstrip(".").lower()
     raw = await file.read()
@@ -66,10 +66,10 @@ async def upload_file(file: UploadFile = Depends(validate_file),
         await session.commit()
         file_id = existing.id
         # 删除向量数据
-        milvusVector.delete_documents(file_id, user_id, knowledge_id)
+        milvus_vector.delete_documents(file_id, user_id, knowledge_id)
     else:
         # 新文件，直接保存
-        knowledgeBaseFile = KnowledgeBaseFile(
+        knowledge_base_file = KnowledgeBaseFile(
             knowledge_id=knowledge_id,
             file_name=file.filename,
             file_size=len(raw),
@@ -79,10 +79,10 @@ async def upload_file(file: UploadFile = Depends(validate_file),
             creator_id=user_id,
             update_id=user_id,
         )
-        session.add(knowledgeBaseFile)
+        session.add(knowledge_base_file)
         await session.commit()
-        await session.refresh(knowledgeBaseFile)  # 确保从数据库刷新自增ID
-        file_id = knowledgeBaseFile.id
+        await session.refresh(knowledge_base_file)  # 确保从数据库刷新自增ID
+        file_id = knowledge_base_file.id
 
     if ext in ("txt", "md"):
         content = raw.decode("utf-8")
@@ -91,7 +91,7 @@ async def upload_file(file: UploadFile = Depends(validate_file),
         content = "\n".join(p.text for p in doc.paragraphs)
     # 切分文档，保存向量数据
     document_list = split_document(content, ext, 200)
-    milvusVector.save_documents(document_list, user_id, knowledge_id, file_id)
+    milvus_vector.save_documents(document_list, user_id, knowledge_id, file_id)
     return {"filename": file.filename, "content": document_list}
 
 
@@ -138,7 +138,7 @@ async def delete_file(params: DeleteFileParams, session: AsyncSession = Depends(
     if not doc:
         raise NotFoundError("文件", f"id={params.file_id}")
     await session.delete(doc)
-    milvusVector.delete_documents(params.file_id, params.user_id, params.knowledge_id)
+    milvus_vector.delete_documents(params.file_id, params.user_id, params.knowledge_id)
     return {"message": "删除成功", "file_id": params.file_id}
 
 
@@ -156,9 +156,7 @@ async def download_file(
     session: AsyncSession = Depends(get_session),
 ):
     """通过文件ID下载文件。"""
-    result = await session.execute(
-        select(KnowledgeBaseFile).where(KnowledgeBaseFile.id == file_id)
-    )
+    result = await session.execute(select(KnowledgeBaseFile).where(KnowledgeBaseFile.id == file_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="文件不存在")

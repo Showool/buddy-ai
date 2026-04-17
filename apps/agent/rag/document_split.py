@@ -7,8 +7,6 @@
 - docx: RecursiveCharacterTextSplitter
 """
 
-from typing import List
-
 from langchain_core.documents import Document
 from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
@@ -20,7 +18,9 @@ DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 0
 
 
-def split_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[Document]:
+def split_text(
+    text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
+) -> list[Document]:
     """通用文本分割，适用于 txt / docx。"""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -30,8 +30,9 @@ def split_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: i
     return splitter.create_documents([text])
 
 
-
-def split_markdown(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[Document]:
+def split_markdown(
+    text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
+) -> list[Document]:
     """Markdown 分割：先按标题拆分保留结构，再对过长片段二次分割。"""
     headers_to_split_on = [
         ("#", "h1"),
@@ -39,7 +40,7 @@ def split_markdown(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overla
         ("###", "h3"),
     ]
     md_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
-    md_docs: List[Document] = md_splitter.split_text(text)
+    md_docs: list[Document] = md_splitter.split_text(text)
 
     # 二次分割：对超出 chunk_size 的片段再用 RecursiveCharacterTextSplitter 切分
     char_splitter = RecursiveCharacterTextSplitter(
@@ -49,8 +50,9 @@ def split_markdown(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overla
     return char_splitter.split_documents(md_docs)
 
 
-
-def split_document(text: str, file_ext: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[Document]:
+def split_document(
+    text: str, file_ext: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
+) -> list[Document]:
     """
     根据文件扩展名选择分割策略。
 

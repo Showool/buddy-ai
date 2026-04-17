@@ -3,14 +3,17 @@ Mem0 记忆模块 - 使用 Milvus 向量库存储
 """
 
 import logging
+from typing import Any
+
 from mem0 import Memory
+
 from apps.config import settings
 
 logger = logging.getLogger(__name__)
 
-class MemoryManager:
 
-    def __init__(self):
+class MemoryManager:
+    def __init__(self) -> None:
         config = {
             "vector_store": {
                 "provider": "milvus",
@@ -29,7 +32,7 @@ class MemoryManager:
                     "temperature": 0,
                     "max_tokens": 2000,
                     "api_key": settings.OPENAI_API_KEY,
-                }
+                },
             },
             "embedder": {
                 "provider": settings.EMBEDDING_PROVIDER,
@@ -37,26 +40,25 @@ class MemoryManager:
                     "model": settings.EMBEDDING_MODEL,
                     "embedding_dims": settings.EMBEDDING_DIMENSIONS,
                     "api_key": settings.OPENAI_API_KEY,
-                }
-            }
+                },
+            },
         }
         self.memory_client = Memory.from_config(config)
         logger.info("Mem0 Memory 实例已创建 (Milvus: %s)", settings.MILVUS_URL)
 
 
 # 模块级单例，由 lifespan 初始化
-_memory_client = None
+_memory_client: Any = None
 
 
-def init_memory():
+def init_memory() -> None:
     """初始化 memory_client 并缓存为单例"""
     global _memory_client
     _memory_client = MemoryManager().memory_client
 
 
-def get_memory_client():
+def get_memory_client() -> Any:
     """获取已初始化的 memory_client 单例"""
     if _memory_client is None:
         raise RuntimeError("MemoryClient 未初始化，请先在 lifespan 中调用 init_memory()")
     return _memory_client
-

@@ -1,9 +1,10 @@
+from typing import Any
 
 from apps.agent.llm.llm_factory import get_llm
 from apps.agent.state import GraphState, RouteSchema
 
 
-def router(state: GraphState) -> dict:
+def router(state: GraphState) -> dict[str, Any]:
     """Route the agent to the appropriate node."""
     messages = state.get("messages", [])
     if not messages:
@@ -11,7 +12,7 @@ def router(state: GraphState) -> dict:
 
     query = messages[-1].content
     llm_with_schema = get_llm().with_structured_output(RouteSchema, method="json_mode")
-    ROUTER_PROMPT = f"""你是意图分类器。判断用户输入属于以下哪个类别，输出 JSON。
+    router_prompt = f"""你是意图分类器。判断用户输入属于以下哪个类别，输出 JSON。
 
     <user_input>{query}</user_input>
 
@@ -48,7 +49,7 @@ def router(state: GraphState) -> dict:
     "route_reason": "判定理由"
     }}
     """
-    route_result: RouteSchema = llm_with_schema.invoke(ROUTER_PROMPT)
+    route_result: RouteSchema = llm_with_schema.invoke(router_prompt)
     return {
         "route_decision": route_result.route_decision,
         "route_reason": route_result.route_reason,

@@ -13,6 +13,7 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 
 load_dotenv(_ENV_FILE)
 
+
 class Settings(BaseSettings):
     """应用配置"""
 
@@ -45,13 +46,12 @@ class Settings(BaseSettings):
     MILVUS_MEM0_COLLECTION_NAME: str = "mem0"
 
     # ========== Embedding 配置 ==========
-    EMBEDDING_PROVIDER: str = "openai" #"huggingface"
-    EMBEDDING_MODEL: str = "text-embedding-3-large" #"Qwen/Qwen3-Embedding-8B"
+    EMBEDDING_PROVIDER: str = "openai"  # "huggingface"
+    EMBEDDING_MODEL: str = "text-embedding-3-large"  # "Qwen/Qwen3-Embedding-8B"
     EMBEDDING_DIMENSIONS: int = 1024
 
     # ========== 日志配置 ==========
     LOG_LEVEL: str = "INFO"
-
 
 
 # 创建全局配置实例

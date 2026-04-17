@@ -1,18 +1,19 @@
+from typing import Any
 
 from apps.agent.llm.llm_factory import get_llm
 from apps.agent.state import GraphState, PlanSchema, PlanStepSchema
 
 
-def plan_step(state: GraphState) -> dict:
+def plan_step(state: GraphState) -> dict[str, Any]:
     """根据用户输入生成计划步骤节点"""
-    memory = state.get('memory_context') or '无'
+    memory = state.get("memory_context") or "无"
 
-    PLANNER_PROMPT = f"""
+    planner_prompt = f"""
       ## 角色
       你是子任务拆分专家。根据用户问题和记忆上下文，将复杂问题拆解为多个可独立执行的子任务。
 
       ## 输入
-      <user_input>{state['original_input']}</user_input>
+      <user_input>{state["original_input"]}</user_input>
       <memory_context>{memory}</memory_context>
 
       ## 拆分规则
@@ -46,20 +47,17 @@ def plan_step(state: GraphState) -> dict:
       """
 
     llm_with_schema = get_llm().with_structured_output(PlanSchema)
-    result: PlanSchema = llm_with_schema.invoke(PLANNER_PROMPT)
+    result: PlanSchema = llm_with_schema.invoke(planner_prompt)
     return {"plan": result}
 
 
-def work_step(state: PlanStepSchema) -> dict:
-   """根据计划步骤生成结果"""
-   description = state.description
-   response = get_llm().invoke(description)
-   return {"step_results": [response.content]}
+def work_step(state: PlanStepSchema) -> dict[str, Any]:
+    """根据计划步骤生成结果"""
+    description = state.description
+    response = get_llm().invoke(description)
+    return {"step_results": [response.content]}
 
 
-
-def synthesis_step_results(state: GraphState) -> dict:
-  """合并步骤结果"""
-  return {
-    "final_answer": "".join(state.get("step_results", []))
-  }
+def synthesis_step_results(state: GraphState) -> dict[str, Any]:
+    """合并步骤结果"""
+    return {"final_answer": "".join(state.get("step_results") or [])}

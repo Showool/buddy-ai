@@ -58,7 +58,7 @@ class GraphState(MessagesState):
 - **向量库**: Milvus 2.5+（混合检索：Dense + Sparse BM25 + RRF 融合 + TEXT_MATCH 文本匹配）
 - **Embedding**: OpenAI text-embedding-3-large（1024 维），备选 Qwen3-Embedding 本地模型（last-token 池化）
 - **长期记忆**: Mem0 + Milvus 向量存储（语义去重）
-- **短期记忆**: Redis Checkpointing（LangGraph 原生 `RedisSaver`）
+- **短期记忆**: Redis Checkpointing（LangGraph 原生 `AsyncRedisSaver`，全异步）
 - **数据库**: MySQL（知识库文件元数据 + 用户管理，SQLAlchemy AsyncSession）
 - **消息压缩**: LLM 摘要压缩，保留最近 5 条消息，旧消息生成摘要
 - **包管理**: uv（`pyproject.toml`）
@@ -72,7 +72,7 @@ class GraphState(MessagesState):
 - 💾 **双层记忆**: 短期 Redis Checkpoint + 长期 Mem0 向量记忆（语义去重，阈值 0.95）
 - 📋 **任务规划**: Plan-and-Execute 模式，LLM 结构化拆解 2-5 个子任务，Send() API 并行执行
 - 🔁 **自我改进**: Reflection 机制四维评估（相关性 / 事实准确性 / 完整性 / 逻辑一致性），最多 3 次迭代优化
-- 💬 **流式输出**: SSE 实时推送 Agent 增量 token（FastAPI `EventSourceResponse` + 前端 fetch ReadableStream）
+- 💬 **流式输出**: SSE 实时推送 Agent 增量 token（FastAPI `EventSourceResponse` + `astream` 全异步 + 前端 fetch ReadableStream + 空闲超时保护）
 - 📝 **消息压缩**: 超过 5 条消息自动 LLM 摘要压缩，安全切割避免拆分 `AIMessage(tool_calls)` 和 `ToolMessage` 对
 - 📄 **知识库管理**: 支持 txt / docx / md 文件上传、下载、删除，MD5 去重检测，智能分割入库
 - 🎨 **现代化 UI**: ChatGPT 风格界面，Element Plus 暗黑主题切换，Markdown 渲染 + DOMPurify XSS 防护
@@ -86,7 +86,7 @@ class GraphState(MessagesState):
 - **ReAct 模式**: `generate_response` 节点通过 `bind_tools` 支持工具调用（Tavily Search、Wikipedia），内置 Chain-of-Thought 五步推理
 - **Reflection**: `evaluate_node` 四维评估（相关性 / 事实准确性 / 完整性 / 逻辑一致性），不通过则带 feedback 重新生成，最多 3 次
 - **Plan-and-Execute**: 复杂任务 LLM 结构化拆解为 2-5 个子任务，`Send()` API 并行执行步骤并汇总
-- **状态持久化**: `RedisSaver` 支持多轮对话上下文恢复（通过 `thread_id`）
+- **状态持久化**: `AsyncRedisSaver` 全异步支持多轮对话上下文恢复（通过 `thread_id`），配合 `astream` / `aget_state` 避免阻塞事件循环
 - **消息摘要**: `RemoveMessage` + `SystemMessage` 实现对话历史压缩，`_find_safe_split_index` 安全切割保护工具调用链
 
 ### 混合检索架构
@@ -124,9 +124,9 @@ graph LR
 **双层记忆架构：**
 
 1. **短期记忆**: Redis Checkpointing
-   - LangGraph `RedisSaver` 原生支持，保存完整对话状态和执行历史
+   - LangGraph `AsyncRedisSaver` 全异步支持，保存完整对话状态和执行历史
    - 通过 `thread_id` 恢复会话上下文
-   - 在 FastAPI `lifespan` 中初始化，应用退出时自动关闭连接
+   - 在 FastAPI `lifespan` 中通过 `async with` 初始化，应用退出时自动关闭连接
 
 2. **长期记忆**: Mem0 + Milvus
    - `retrieve_memories`: 每次对话开始时检索相关记忆（阈值 0.7，最多 3 条）
@@ -152,13 +152,18 @@ graph LR
 }
 ```
 
-**响应**: SSE 流式事件（`stream_mode="messages"`）
+**响应**: SSE 流式事件（`astream` + `stream_mode="messages"`，全异步）
 
 | 事件 | 说明 |
 |------|------|
 | `workflow_node` | 增量 token（`content` 为文本片段，`node` 为当前节点名） |
-| `final_answer` | 最终完整答案（从 `GraphState.final_answer` 获取） |
+| `final_answer` | 最终完整答案（通过 `await aget_state()` 从 `GraphState.final_answer` 获取） |
 | `error` | 错误信息 |
+
+**连接管理**:
+- 后端使用 `compiled_graph.astream()` + `await compiled_graph.aget_state()` 全异步流式输出，不阻塞事件循环
+- 后端捕获 `asyncio.CancelledError` 优雅处理客户端断开（路由切换、连续发送、删除线程等场景）
+- 前端禁用 axios 全局 30s 请求超时（`timeout: 0`），改用 120 秒空闲超时（idle timeout）保护：连续无数据时主动断开并提示用户
 
 ### 知识库管理
 
@@ -271,7 +276,7 @@ npm run dev
 
 ```
 buddy-ai/
-├── main.py                          # FastAPI 入口（lifespan 初始化 DB/Graph/Memory，挂载路由）
+├── main.py                          # FastAPI 入口（lifespan 初始化 DB/Graph/Memory，AsyncRedisSaver 全异步）
 ├── apps/
 │   ├── config.py                    # Pydantic Settings 配置管理（.env 加载，支持 OpenAI/DashScope/智谱）
 │   ├── exceptions.py                # 自定义异常（NotFoundError 404 / DatabaseError 500）
@@ -281,10 +286,10 @@ buddy-ai/
 │   │   ├── async_engine.py          # SQLAlchemy AsyncSession（MySQL 连接池，自动 commit/rollback）
 │   │   └── models.py               # ORM 模型（User / KnowledgeBase / KnowledgeBaseFile）
 │   ├── api/
-│   │   ├── agent_chat.py            # SSE 对话接口（/agent/chat，stream_mode="messages"）
+│   │   ├── agent_chat.py            # SSE 对话接口（/agent/chat，astream 全异步 + CancelledError 优雅断开）
 │   │   └── knowledgebase.py         # 知识库 CRUD（上传/列表/删除/下载，MD5 去重）
 │   └── agent/
-│       ├── graph.py                 # StateGraph 工作流（13 个节点、条件路由、RedisSaver 单例）
+│       ├── graph.py                 # StateGraph 工作流（13 个节点、条件路由、AsyncRedisSaver 单例）
 │       ├── state.py                 # GraphState + Schema 定义（Route/QueryTransform/Plan/Reflection）
 │       ├── condition.py             # 条件路由函数（route_condition / generate_response_router / assign_workers）
 │       ├── workflow_diagram.py      # LangGraph 流程图 PNG 生成工具
@@ -327,8 +332,8 @@ buddy-ai/
 │       │   ├── chat.ts              # ChatStore（线程 CRUD / 消息追加 / 流式状态 / localStorage 持久化）
 │       │   └── user.ts              # UserStore（userId / 主题切换 / kbRefreshCount / localStorage 持久化）
 │       ├── services/
-│       │   ├── request.ts           # axios 实例（开发环境 proxy / 生产环境 baseURL / 响应拦截器）
-│       │   ├── sse.ts               # SSE 客户端（axios + ReadableStream，POST 请求，标准 SSE 格式解析）
+│       │   ├── request.ts           # axios 实例（开发环境 proxy / 生产环境 baseURL / 响应拦截器 / 30s 超时）
+│       │   ├── sse.ts               # SSE 客户端（axios + ReadableStream，POST 请求，标准 SSE 解析，120s 空闲超时保护）
 │       │   └── api.ts               # 知识库 API（文件上传/列表/删除/下载，扩展名校验）
 │       ├── views/
 │       │   ├── WelcomePage.vue      # 欢迎页（居中标题 + 输入框，发送后自动创建线程跳转）
@@ -366,6 +371,34 @@ uv add package_name
 python -m apps.agent.workflow_diagram
 ```
 
+### 代码质量
+
+项目使用 `ruff`（lint + 格式化）和 `mypy`（类型检查）保证代码质量。
+
+```bash
+# 检查代码问题
+ruff check .
+
+# 自动修复可修复的问题
+ruff check --fix .
+
+# 格式化代码（替代 black + isort）
+ruff format .
+
+# 类型检查
+mypy apps/
+```
+
+日常开发流程：写完代码后执行 `ruff check --fix . && ruff format .` 格式化，提交前执行 `mypy apps/` 检查类型。
+
+ruff 规则配置在 `pyproject.toml` 的 `[tool.ruff]` 中，当前启用的规则集：
+- `E` / `F` / `W` — 基础错误和警告
+- `I` — import 排序（替代 isort）
+- `N` — 命名规范
+- `UP` — 自动升级旧语法
+- `B` — bugbear（常见 bug 模式）
+- `SIM` — 简化代码建议
+
 ### 前端开发
 
 ```bash
@@ -386,7 +419,7 @@ npm run build
 - Pinia 状态管理（localStorage 持久化）
 - Element Plus UI 组件库（含暗黑主题 CSS 变量）
 - markdown-it Markdown 渲染 + DOMPurify XSS 防护（白名单标签 + 属性过滤 + 危险协议拦截）
-- axios HTTP 客户端 + SSE 流式通信（fetch + ReadableStream，支持标准 SSE 格式解析）
+- axios HTTP 客户端 + SSE 流式通信（fetch + ReadableStream，标准 SSE 格式解析，120s 空闲超时保护）
 - Vue Router 4（欢迎页 + 对话页 + 404 重定向）
 - nanoid 生成线程 ID
 - Vite 开发服务器代理（`/agent` + `/knowledgebase` → 后端 8000）
@@ -416,6 +449,8 @@ LLM Factory 统一使用 `ChatOpenAI` 接口，DashScope 通过兼容模式（`o
 - `python-docx` - DOCX 文件解析
 - `torch` + `transformers` - Qwen3-Embedding 本地模型（备选）
 - `snowflake-id` - 分布式 ID 生成
+- `ruff` - 代码 lint + 格式化（替代 black / isort / flake8）
+- `mypy` - 静态类型检查
 
 **前端（Node.js）**:
 - `vue` 3.5 + `vue-router` 4 + `pinia` - 核心框架

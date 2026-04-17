@@ -7,14 +7,17 @@ Mem0 记忆中间件 - 在 LangGraph 节点执行前后自动管理记忆
 """
 
 import logging
+from typing import Any
+
 from langchain_core.runnables import RunnableConfig
+
 from apps.agent.memory.mem0 import get_memory_client
 from apps.agent.state import GraphState
 
 logger = logging.getLogger(__name__)
 
 
-def retrieve_memories(state: GraphState, config: RunnableConfig) -> dict:
+def retrieve_memories(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     """
     检索记忆节点 - 在生成回复前调用
 
@@ -51,7 +54,7 @@ def retrieve_memories(state: GraphState, config: RunnableConfig) -> dict:
         return {"memory_context": None}
 
 
-def save_memories(state: GraphState, config: RunnableConfig) -> dict:
+def save_memories(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     """
     存储记忆节点 - 在生成回复后调用
 
@@ -73,17 +76,8 @@ def save_memories(state: GraphState, config: RunnableConfig) -> dict:
             logger.info("已存在相似记忆，跳过存储: user_id=%s", user_id)
             return {}
 
-        interaction = [
-            {
-                "role": "user",
-                "content": original_input
-            },
-            {
-                "role": "assistant",
-                "content": final_answer
-            }
-        ]
-        mem0_result = memory_client.add(interaction, user_id=user_id)
+        interaction = [{"role": "user", "content": original_input}, {"role": "assistant", "content": final_answer}]
+        mem0_result = memory_client.add(interaction, user_id=user_id)  # noqa: F841
         logger.info("记忆已存储: user_id=%s", user_id)
 
     except Exception as e:
