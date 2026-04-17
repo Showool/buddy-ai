@@ -13,7 +13,7 @@ def generate_response(state: GraphState) -> dict[str, Any]:
     if (state["reflection"] and state["reflection"].passed) or state["reflection_count"] >= 3:
         return {"final_answer": state["draft_answer"]}
 
-    retrieval_data = "/n".join([d["document_text"] for d in state["rag_docs"]]) if state["rag_docs"] else ""
+    retrieval_data = "\n".join([d["document_text"] for d in state["rag_docs"]]) if state["rag_docs"] else ""
     feedback = state["reflection"].feedback if state["reflection"] else ""
 
     generate_response_prompt = f"""
