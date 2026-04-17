@@ -1,20 +1,26 @@
+from functools import lru_cache
+
 from langchain_openai import ChatOpenAI
 
 from apps.config import settings
 
 
-def get_llm(model: str = "gpt-5.2") -> ChatOpenAI:
+def get_llm(model: str | None = None) -> ChatOpenAI:
+    """获取 LLM 实例（同参数复用缓存）"""
+    resolved_model = model or settings.LLM_MODEL
     if settings.LLM_PROVIDER == "openai":
-        return get_openai_llm(model)
+        return _get_openai_llm(resolved_model)
     else:
-        return get_dashscope_llm(model)
+        return _get_dashscope_llm(resolved_model)
 
 
-def get_openai_llm(model: str = "gpt-5.2") -> ChatOpenAI:
+@lru_cache(maxsize=4)
+def _get_openai_llm(model: str) -> ChatOpenAI:
     return ChatOpenAI(temperature=0, model=model)
 
 
-def get_dashscope_llm(model: str = "qwen-plus") -> ChatOpenAI:
+@lru_cache(maxsize=4)
+def _get_dashscope_llm(model: str) -> ChatOpenAI:
     return ChatOpenAI(
         temperature=0,
         model=model,

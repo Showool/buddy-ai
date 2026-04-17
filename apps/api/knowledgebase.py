@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.agent.rag import milvus_vector
 from apps.agent.rag.document_split import split_document
+from apps.config import settings
 from apps.database.async_engine import get_session
 from apps.database.models import KnowledgeBaseFile
 from apps.exceptions import NotFoundError
@@ -22,13 +23,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledgebase", tags=["knowledgebase"])
 
 ALLOWED_FILE_TYPE = {"txt", "docx", "md"}
+MAX_UPLOAD_SIZE = settings.MAX_UPLOAD_SIZE
 
 
 async def validate_file(file: UploadFile = File(...)) -> UploadFile:
-    """校验上传文件的类型，仅允许 txt、docx、md。"""
+    """校验上传文件的类型和大小。"""
     ext = Path(file.filename or "").suffix.lstrip(".").lower()
     if ext not in ALLOWED_FILE_TYPE:
         raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}，仅支持 {', '.join(ALLOWED_FILE_TYPE)}")
+    if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+        max_mb = MAX_UPLOAD_SIZE / (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"文件大小超过限制，最大允许 {max_mb:.0f}MB")
     return file
 
 
@@ -40,8 +45,14 @@ async def upload_file(
     session: AsyncSession = Depends(get_session),
 ):
     """上传单个文件，仅支持 txt、docx、md 格式，返回文件内容。"""
-    ext = Path(file.filename or "").suffix.lstrip(".").lower()
+    file_type = Path(file.filename or "").suffix.lstrip(".").lower()
     raw = await file.read()
+
+    # 二次校验文件大小（file.size 可能为 None）
+    if len(raw) > MAX_UPLOAD_SIZE:
+        max_mb = MAX_UPLOAD_SIZE / (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"文件大小超过限制，最大允许 {max_mb:.0f}MB")
+
     file_md5 = hashlib.md5(raw).hexdigest()
 
     # 查询是否已存在同名文件
@@ -59,7 +70,7 @@ async def upload_file(
             return {"filename": file.filename, "message": "文件未变更，跳过上传"}
         # md5 不一致，更新文件
         existing.file_size = len(raw)
-        existing.file_type = ext
+        existing.file_type = file_type
         existing.file_content = raw
         existing.file_md5 = file_md5
         existing.update_id = user_id
@@ -73,7 +84,7 @@ async def upload_file(
             knowledge_id=knowledge_id,
             file_name=file.filename,
             file_size=len(raw),
-            file_type=ext,
+            file_type=file_type,
             file_content=raw,
             file_md5=file_md5,
             creator_id=user_id,
@@ -84,13 +95,13 @@ async def upload_file(
         await session.refresh(knowledge_base_file)  # 确保从数据库刷新自增ID
         file_id = knowledge_base_file.id
 
-    if ext in ("txt", "md"):
+    if file_type in ("txt", "md"):
         content = raw.decode("utf-8")
     else:
         doc = docx.Document(io.BytesIO(raw))
         content = "\n".join(p.text for p in doc.paragraphs)
     # 切分文档，保存向量数据
-    document_list = split_document(content, ext, 200)
+    document_list = split_document(content, file_type, 200)
     milvus_vector.save_documents(document_list, user_id, knowledge_id, file_id)
     return {"filename": file.filename, "content": document_list}
 

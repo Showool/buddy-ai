@@ -47,6 +47,9 @@ export interface KnowledgeFile {
 /** 文件上传允许的扩展名 */
 export const ALLOWED_EXTENSIONS = ['.txt', '.docx', '.md'] as const
 
+/** 文件上传最大大小（5MB） */
+export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024
+
 /** 默认知识库 ID */
 export const DEFAULT_KNOWLEDGE_ID = 1
 

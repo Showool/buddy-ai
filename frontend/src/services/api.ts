@@ -1,5 +1,5 @@
 import type { KnowledgeFile, UploadFileResponse } from '@/types'
-import { ALLOWED_EXTENSIONS } from '@/types'
+import { ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE } from '@/types'
 import request from './request'
 
 /**
@@ -8,6 +8,13 @@ import request from './request'
 export function isFileAllowed(filename: string): boolean {
   const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase()
   return ALLOWED_EXTENSIONS.includes(ext as typeof ALLOWED_EXTENSIONS[number])
+}
+
+/**
+ * 校验文件大小是否在允许范围内
+ */
+export function isFileSizeAllowed(size: number): boolean {
+  return size <= MAX_UPLOAD_SIZE
 }
 
 /**

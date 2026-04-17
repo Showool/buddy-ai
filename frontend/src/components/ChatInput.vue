@@ -57,7 +57,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { uploadFile, isFileAllowed } from '@/services/api'
+import { uploadFile, isFileAllowed, isFileSizeAllowed } from '@/services/api'
 import { useUserStore } from '@/stores/user'
 import { DEFAULT_KNOWLEDGE_ID } from '@/types'
 
@@ -139,6 +139,10 @@ async function handleFileChange(e: Event) {
   }
   if (!isFileAllowed(file.name)) {
     ElMessage.error('仅支持 .txt、.docx、.md 格式的文件')
+    return
+  }
+  if (!isFileSizeAllowed(file.size)) {
+    ElMessage.error('文件大小不能超过 5MB')
     return
   }
 

@@ -35,9 +35,16 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
 
+    # ========== 上传配置 ==========
+    MAX_UPLOAD_SIZE: int = 5 * 1024 * 1024  # 5MB
+
     # ========== 数据库配置 ==========
     REDIS_URL: str = "redis://localhost:6379/0"
     MYSQL_URL: str = "mysql+aiomysql://root:123456@localhost:3306/buddy_ai?charset=utf8"
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_RECYCLE: int = 3600
+    DB_ECHO: bool = False
 
     # ========== Milvus 向量库配置 (mem0) ==========
     MILVUS_URL: str = "http://localhost:19530"

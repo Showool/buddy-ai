@@ -51,21 +51,21 @@ def split_markdown(
 
 
 def split_document(
-    text: str, file_ext: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
+    text: str, file_type: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
 ) -> list[Document]:
     """
     根据文件扩展名选择分割策略。
 
     Args:
         text: 文档文本内容
-        file_ext: 文件扩展名，如 ".txt", ".md", ".docx"
+        file_type: 文件扩展名，如 "txt", "md", "docx"
         chunk_size: 分块大小
         chunk_overlap: 分块重叠大小
 
     Returns:
         分割后的文本列表
     """
-    ext = file_ext.lower()
-    if ext == ".md":
+    ext = file_type.lower()
+    if ext == "md":
         return split_markdown(text, chunk_size, chunk_overlap)
     return split_text(text, chunk_size, chunk_overlap)

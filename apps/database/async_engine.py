@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 
 async_engine = create_async_engine(
     settings.MYSQL_URL,
-    echo=True,  # 可选：输出SQL日志
-    pool_size=10,  # 设置连接池中保持的持久连接数
-    max_overflow=20,  # 设置连接池允许创建的额外连接数
+    echo=settings.DB_ECHO,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=True,
 )
 
 async_session = async_sessionmaker(
