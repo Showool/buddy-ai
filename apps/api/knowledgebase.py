@@ -17,6 +17,7 @@ from apps.database.async_engine import get_session
 from apps.database.models import KnowledgeBaseFile
 from apps.exceptions import NotFoundError
 from apps.models.request_params import DeleteFileParams
+from apps.models.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ async def upload_file(
     file_id = None
     if existing:
         if existing.file_md5 == file_md5:
-            return {"filename": file.filename, "message": "文件未变更，跳过上传"}
+            return APIResponse(success=True, data={"filename": file.filename}, message="文件未变更，跳过上传")
         # md5 不一致，更新文件
         existing.file_size = len(raw)
         existing.file_type = file_type
@@ -103,7 +104,7 @@ async def upload_file(
     # 切分文档，保存向量数据
     document_list = split_document(content, file_type, 200)
     milvus_vector.save_documents(document_list, user_id, knowledge_id, file_id)
-    return {"filename": file.filename, "content": document_list}
+    return APIResponse(success=True, data={"filename": file.filename, "file_id": file_id}, message="上传成功")
 
 
 @router.get("/get_files")
@@ -132,7 +133,7 @@ async def get_files(
         )
     )
     rows = result.all()
-    return [row._asdict() for row in rows]
+    return APIResponse(success=True, data=[row._asdict() for row in rows])
 
 
 @router.post("/delete_file")
@@ -150,7 +151,7 @@ async def delete_file(params: DeleteFileParams, session: AsyncSession = Depends(
         raise NotFoundError("文件", f"id={params.file_id}")
     await session.delete(doc)
     milvus_vector.delete_documents(params.file_id, params.user_id, params.knowledge_id)
-    return {"message": "删除成功", "file_id": params.file_id}
+    return APIResponse(success=True, data={"file_id": params.file_id}, message="删除成功")
 
 
 # MIME 映射

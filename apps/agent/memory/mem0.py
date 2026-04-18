@@ -3,7 +3,6 @@ Mem0 记忆模块 - 使用 Milvus 向量库存储
 """
 
 import logging
-from typing import Any
 
 from mem0 import Memory
 
@@ -48,7 +47,7 @@ class MemoryManager:
 
 
 # 模块级单例，由 lifespan 初始化
-_memory_client: Any = None
+_memory_client: Memory | None = None
 
 
 def init_memory() -> None:
@@ -57,7 +56,7 @@ def init_memory() -> None:
     _memory_client = MemoryManager().memory_client
 
 
-def get_memory_client() -> Any:
+def get_memory_client() -> Memory:
     """获取已初始化的 memory_client 单例"""
     if _memory_client is None:
         raise RuntimeError("MemoryClient 未初始化，请先在 lifespan 中调用 init_memory()")

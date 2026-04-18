@@ -11,7 +11,7 @@ tavily_search_tool = TavilySearch(
 
 
 @tool
-def wiki_tool(query: str):
-    """This tool allows you to search Wikipedia for more information."""
+def wiki_tool(query: str) -> str:
+    """搜索维基百科获取更多信息。"""
     wiki_query = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
     return wiki_query.invoke(query)

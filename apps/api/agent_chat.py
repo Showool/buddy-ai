@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import traceback
 from collections.abc import AsyncIterable
 
 from fastapi import APIRouter
@@ -51,6 +50,5 @@ async def agent_chat(chat_params: ChatParams) -> AsyncIterable[dict]:
         logger.info("客户端断开连接，SSE 流已取消: thread_id=%s", chat_params.thread_id)
         return
     except Exception as e:
-        logger.error(f"❌ Agent响应失败: {e}")
-        traceback.print_exc()
-        yield {"error": f"❌ Agent响应失败: {e}"}
+        logger.error("Agent 响应失败: %s", e, exc_info=True)
+        yield {"event": "error", "content": f"Agent 响应失败: {e}"}

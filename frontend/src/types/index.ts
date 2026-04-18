@@ -29,6 +29,13 @@ export interface SSEJsonLine {
   error?: string
 }
 
+/** 标准 API 响应信封 */
+export interface APIResponse<T = unknown> {
+  success: boolean
+  data: T | null
+  message: string | null
+}
+
 /** 知识库文件 */
 export interface KnowledgeFile {
   id: number
@@ -56,5 +63,5 @@ export const DEFAULT_KNOWLEDGE_ID = 1
 /** 文件上传响应 */
 export interface UploadFileResponse {
   filename: string
-  content: string[]
+  file_id: number
 }

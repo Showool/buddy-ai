@@ -4,7 +4,7 @@ from langchain_core.messages import SystemMessage
 
 from apps.agent.llm.llm_factory import get_llm
 from apps.agent.state import GraphState
-from apps.agent.tools import get_tools
+from apps.agent.tools import tools
 from apps.agent.utils.message_summarizer import summarize_and_prune_messages
 
 
@@ -65,7 +65,7 @@ def generate_response(state: GraphState) -> dict[str, Any]:
     """
 
     llm = get_llm()
-    llm_with_tools = llm.bind_tools(tools=get_tools)
+    llm_with_tools = llm.bind_tools(tools=tools)
 
     # 每次调用 LLM 前，判断是否需要摘要压缩并回写 state
     messages = state.get("messages", [])

@@ -3,7 +3,6 @@ LangGraph 流程图生成工具
 """
 
 import logging
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +34,7 @@ async def generate_workflow_diagram() -> None:
         _generate_png_from_graph(compiled_graph, output_file)
 
     except Exception as e:
-        logger.error(f"生成流程图失败: {e}")
-        traceback.print_exc()
+        logger.error("生成流程图失败: %s", e, exc_info=True)
         return None
 
 
@@ -59,8 +57,7 @@ def _generate_png_from_graph(compiled_graph: Any, output_file: Path) -> None:
         with open(output_file, "wb") as f:
             f.write(png_data)
 
-        logger.info(f"LangGraph 流程图已生成: {output_file}")
-        print(f"LangGraph 流程图已生成: {output_file}")
+        logger.info("LangGraph 流程图已生成: %s", output_file)
 
     except Exception as e:
         logger.warning(f"PNG 生成失败: {e}")

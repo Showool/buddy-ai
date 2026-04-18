@@ -1,4 +1,6 @@
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -19,10 +21,13 @@ from apps.agent.nodes import (
     work_step,
 )
 from apps.agent.state import GraphState
-from apps.agent.tools import get_tools
+from apps.agent.tools import tools
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 # 模块级单例，由 lifespan 初始化
-_compiled_graph: Any = None
+_compiled_graph: CompiledStateGraph | None = None
 
 
 def build_workflow() -> StateGraph:
@@ -41,7 +46,7 @@ def build_workflow() -> StateGraph:
     workflow.add_node("work_step", work_step)
     workflow.add_node("synthesis_step_results", synthesis_step_results)
     workflow.add_node("evaluate_node", evaluate_node)
-    workflow.add_node("tool_node", ToolNode(get_tools))
+    workflow.add_node("tool_node", ToolNode(tools))
     workflow.add_node("save_memories", save_memories)
 
     # 边定义: 记忆检索 → 路由 → ... → 记忆存储
@@ -85,7 +90,7 @@ def init_graph(checkpointer: Any) -> None:
     _compiled_graph = build_workflow().compile(checkpointer=checkpointer)
 
 
-def get_graph() -> Any:
+def get_graph() -> CompiledStateGraph:
     """获取已编译的 graph 单例"""
     if _compiled_graph is None:
         raise RuntimeError("Graph 未初始化，请先在 lifespan 中调用 init_graph()")

@@ -1,4 +1,4 @@
-import type { KnowledgeFile, UploadFileResponse } from '@/types'
+import type { APIResponse, KnowledgeFile, UploadFileResponse } from '@/types'
 import { ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE } from '@/types'
 import request from './request'
 
@@ -18,6 +18,16 @@ export function isFileSizeAllowed(size: number): boolean {
 }
 
 /**
+ * 从 APIResponse 中提取 data，失败时抛出错误
+ */
+function unwrap<T>(res: APIResponse<T>): T {
+  if (!res.success || res.data === null) {
+    throw new Error(res.message ?? '请求失败')
+  }
+  return res.data
+}
+
+/**
  * 上传文件到 /knowledgebase/upload_file 接口
  */
 export async function uploadFile(
@@ -30,32 +40,33 @@ export async function uploadFile(
   formData.append('user_id', userId)
   formData.append('knowledge_id', String(knowledgeId))
 
-  const { data } = await request.post<UploadFileResponse>(
+  const { data } = await request.post<APIResponse<UploadFileResponse>>(
     '/knowledgebase/upload_file',
     formData,
   )
-  return data
+  return unwrap(data)
 }
 
 /**
  * 获取知识库文件列表
  */
 export async function getFiles(userId: string, knowledgeId: number): Promise<KnowledgeFile[]> {
-  const { data } = await request.get<KnowledgeFile[]>('/knowledgebase/get_files', {
+  const { data } = await request.get<APIResponse<KnowledgeFile[]>>('/knowledgebase/get_files', {
     params: { user_id: userId, knowledge_id: knowledgeId },
   })
-  return data
+  return unwrap(data)
 }
 
 /**
  * 删除知识库文件
  */
 export async function deleteFile(userId: string, knowledgeId: number, fileId: number): Promise<void> {
-  await request.post('/knowledgebase/delete_file', {
+  const { data } = await request.post<APIResponse<{ file_id: number }>>('/knowledgebase/delete_file', {
     user_id: userId,
     knowledge_id: knowledgeId,
     file_id: fileId,
   })
+  unwrap(data)
 }
 
 /**

@@ -110,13 +110,17 @@ def hybrid_search(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     """混合搜索"""
     original_input = state["original_input"]
     user_id: str = config["configurable"].get("user_id", "")
-    data = milvus_vector.hybrid_search(original_input, user_id)
-    # 假设性文档嵌入 (HyDE)
-    enhanced = state.get("enhanced_input")
-    if enhanced:
-        hyde_data = milvus_vector.vector_search(enhanced, user_id)
-        data.extend(hyde_data)
-    logger.info(f"混合搜索: {len(data)} 条数据")
+    try:
+        data = milvus_vector.hybrid_search(original_input, user_id)
+        # 假设性文档嵌入 (HyDE)
+        enhanced = state.get("enhanced_input")
+        if enhanced:
+            hyde_data = milvus_vector.vector_search(enhanced, user_id)
+            data.extend(hyde_data)
+    except Exception as e:
+        logger.error("混合搜索失败: %s", e, exc_info=True)
+        data = []
+    logger.info("混合搜索: %d 条数据", len(data))
     return {"rag_docs": data}
 
 
@@ -127,6 +131,10 @@ def text_match(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     keyword = extract_keywords(original_input)
     if not keyword:
         return {"rag_docs": []}
-    data = milvus_vector.text_match(original_input, keyword, user_id)
+    try:
+        data = milvus_vector.text_match(original_input, keyword, user_id)
+    except Exception as e:
+        logger.error("文本匹配失败: %s", e, exc_info=True)
+        data = []
     logger.info("文本匹配: %d 条数据", len(data))
     return {"rag_docs": data}

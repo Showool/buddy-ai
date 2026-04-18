@@ -88,13 +88,7 @@ coverage/
 # Testing
 .pytest_cache/
 htmlcov/
-.tox/
-
-# Models and datasets
-models/
-datasets/
-*.pth
-*.ckpt
+.tox
 
 # Sensitive files
 secrets.json
