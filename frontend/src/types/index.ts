@@ -29,7 +29,7 @@ export interface SSEJsonLine {
   error?: string
 }
 
-/** 标准 API 响应信封 */
+/** 标准 API 响应 */
 export interface APIResponse<T = unknown> {
   success: boolean
   data: T | null
