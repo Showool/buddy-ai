@@ -9,19 +9,6 @@ from apps.config import settings
 
 logger = logging.getLogger(__name__)
 
-
-def _escape(value: str) -> str:
-    """转义 Milvus filter 表达式中的特殊字符
-
-    转义规则：
-    - 反斜杠 \\ -> \\\\
-    - 双引号 " -> \\"
-    - 单引号 ' -> \\'
-    - 空字符 \\0 -> 移除
-    """
-    return value.replace("\0", "").translate(str.maketrans({"\\": "\\\\", '"': '\\"', "'": "\\''"}))
-
-
 class MilvusVector:
     collection_name = "document_embedding"
 
@@ -150,7 +137,7 @@ class MilvusVector:
             collection_name=self.collection_name,
             anns_field="text_dense",
             data=query_embeddings,
-            filter=f'user_id == "{_escape(user_id)}" and knowledge_id == {int(knowledge_id)}',
+            filter=f'user_id == "{self._escape(user_id)}" and knowledge_id == {int(knowledge_id)}',
             limit=top_k,
             output_fields=["id", "document_text"],
         )
@@ -168,7 +155,7 @@ class MilvusVector:
             "param": {
                 "nprobe": 10
             },  # 搜索候选集群的集群数。数值越大，搜索的簇数越多，搜索范围越大，召回率越高，但代价是查询延迟增加。
-            "expr": f'user_id == "{_escape(user_id)}" and knowledge_id == {int(knowledge_id)}',
+            "expr": f'user_id == "{self._escape(user_id)}" and knowledge_id == {int(knowledge_id)}',
             "limit": top_k,
         }
         semantic_search_request = AnnSearchRequest(**semantic_search_param)
@@ -177,7 +164,7 @@ class MilvusVector:
             "data": [query],
             "anns_field": "text_sparse",
             "param": {},  # BM25 搜索不需要额外参数
-            "expr": f'user_id == "{_escape(user_id)}" and knowledge_id == {int(knowledge_id)}',
+            "expr": f'user_id == "{self._escape(user_id)}" and knowledge_id == {int(knowledge_id)}',
             "limit": top_k,
         }
         full_text_search_request = AnnSearchRequest(**full_text_search_param)
@@ -200,7 +187,7 @@ class MilvusVector:
         self, query: str, keyword: str, user_id: str, knowledge_id: int = 1, limit: int = 3
     ) -> list[dict[str, Any]]:
         """文本匹配与向量相似性搜索结合使用，以缩小搜索范围并提高搜索性能。"""
-        filter = f'user_id == "{_escape(user_id)}" and knowledge_id == {int(knowledge_id)} and TEXT_MATCH(document_text, "{_escape(keyword)}")'
+        filter = f'user_id == "{self._escape(user_id)}" and knowledge_id == {int(knowledge_id)} and TEXT_MATCH(document_text, "{self._escape(keyword)}")'
         query_vector = self.openai_ef.encode_queries([query])
         result = self.client.search(
             collection_name=self.collection_name,
@@ -214,9 +201,21 @@ class MilvusVector:
         return [hit["entity"] for hits in result for hit in hits]
 
     def delete_documents(self, file_id: int, user_id: str, knowledge_id: int = 1) -> None:
-        filter = f'file_id == {int(file_id)} and user_id == "{_escape(user_id)}" and knowledge_id == {int(knowledge_id)}'
+        filter = f'file_id == {int(file_id)} and user_id == "{self._escape(user_id)}" and knowledge_id == {int(knowledge_id)}'
         res = self.client.delete(collection_name=self.collection_name, filter=filter)
         logger.info("Delete data: %s", res)
+
+
+    def _escape(value: str) -> str:
+        """转义 Milvus filter 表达式中的特殊字符
+
+        转义规则：
+        - 反斜杠 \\ -> \\\\
+        - 双引号 " -> \\"
+        - 单引号 ' -> \\'
+        - 空字符 \\0 -> 移除
+        """
+        return value.replace("\0", "").translate(str.maketrans({"\\": "\\\\", '"': '\\"', "'": "\\''"}))    
 
 
 milvus_vector = MilvusVector(db_name=settings.MILVUS_DB_NAME, token=settings.MILVUS_TOKEN, url=settings.MILVUS_URL)

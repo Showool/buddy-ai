@@ -1,4 +1,4 @@
-# Buddy-AI 智能问答助手
+# Buddy-AI 智能问答知识助手
 
 基于 LangGraph 的中文智能问答系统，支持混合检索（Dense 向量 + Sparse BM25 + RRF 融合 + 文本匹配）、Plan-and-Execute 任务规划、Reflection 自我改进、网络搜索和双层记忆（短期 Redis + 长期 Mem0）功能。
 
